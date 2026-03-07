@@ -1,2 +1,0 @@
-# Prometheus
-Solar API
