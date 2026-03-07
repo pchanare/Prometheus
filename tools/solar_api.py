@@ -3,21 +3,17 @@
 import os
 
 import googlemaps
-import google.auth
-from google.maps import solar_v1
-from google.type import latlng_pb2
+import requests
 
-PROJECT_ID = "prometheus-489421"
-_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+_MAPS_API_KEY = os.environ.get("MAPS_API_KEY", "")
+_SOLAR_BASE = "https://solar.googleapis.com/v1/buildingInsights:findClosest"
 
 
 def get_solar_data(address: str) -> dict:
     """Geocode *address* and return solar potential data for the building.
 
     Authentication:
-        - Geocoding (googlemaps): reads the ``GOOGLE_MAPS_API_KEY`` env var.
-        - Solar API: uses Application Default Credentials (``gcloud auth
-          application-default login``).
+        Both geocoding and the Solar API use the ``MAPS_API_KEY`` env var.
 
     Args:
         address: A human-readable street address, e.g.
@@ -31,8 +27,7 @@ def get_solar_data(address: str) -> dict:
                 year across all roof segments.
 
     Raises:
-        ValueError: If the address cannot be geocoded.
-        google.api_core.exceptions.GoogleAPICallError: On Solar API errors.
+        ValueError: If the address cannot be geocoded or the Solar API errors.
     """
     # --- 1. Geocode ---
     gmaps = googlemaps.Client(key=_MAPS_API_KEY)
@@ -43,20 +38,21 @@ def get_solar_data(address: str) -> dict:
     location = results[0]["geometry"]["location"]
     lat, lng = location["lat"], location["lng"]
 
-    # --- 2. Solar API ---
-    credentials, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    # --- 2. Solar REST API ---
+    response = requests.get(
+        _SOLAR_BASE,
+        params={
+            "location.latitude": lat,
+            "location.longitude": lng,
+            "requiredQuality": "HIGH",
+            "key": _MAPS_API_KEY,
+        },
     )
-    solar_client = solar_v1.SolarClient(credentials=credentials)
+    if not response.ok:
+        raise ValueError(f"Solar API error {response.status_code}: {response.text}")
 
-    request = solar_v1.FindClosestBuildingInsightsRequest(
-        location=latlng_pb2.LatLng(latitude=lat, longitude=lng),
-        required_quality=solar_v1.ImageryQuality.HIGH,
-    )
-    response = solar_client.find_closest_building_insights(request=request)
-
-    solar = response.solar_potential
+    solar = response.json().get("solarPotential", {})
     return {
-        "max_array_panels_count": solar.max_array_panels_count,
-        "yearly_max_sunshine_hours": solar.max_sunshine_hours_per_year,
+        "max_array_panels_count": solar.get("maxArrayPanelsCount"),
+        "yearly_max_sunshine_hours": solar.get("maxSunshineHoursPerYear"),
     }
