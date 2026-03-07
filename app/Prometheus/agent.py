@@ -1,5 +1,5 @@
 from google.adk import Agent
-from tools.solar_api import get_solar_data
+from solar_api import get_solar_data
 
 root_agent = Agent(
     name="Prometheus",
