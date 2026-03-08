@@ -1,6 +1,9 @@
 import os
 import googlemaps
 import requests
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 _MAPS_API_KEY = os.environ.get("MAPS_API_KEY", "")
 _SOLAR_BASE = "https://solar.googleapis.com/v1/buildingInsights:findClosest"
