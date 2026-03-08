@@ -23,6 +23,10 @@ build/
 # Claude Code
 .claude/
 
+# ADK session data
+.adk/
+*.db
+
 # OS / IDE
 .DS_Store
 Thumbs.db
