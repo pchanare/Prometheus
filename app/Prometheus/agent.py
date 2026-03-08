@@ -9,7 +9,7 @@ from send_rfp_email import send_rfp_email
 
 root_agent = Agent(
     name="Prometheus",
-    model="gemini-2.0-flash-001",
+    model="gemini-live-2.5-flash-native-audio",
     description="An expert in renewable energy and solar potential.",
     instruction="""
     You are Prometheus, an expert in renewable energy and solar potential.

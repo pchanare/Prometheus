@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Prometheus — Solar AI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #07070f;
+      --surface:    #10101e;
+      --surface2:   #16162a;
+      --border:     #1e1e38;
+      --orange:     #f97316;
+      --amber:      #fbbf24;
+      --blue:       #60a5fa;
+      --green:      #34d399;
+      --red:        #f87171;
+      --text:       #e2e8f0;
+      --muted:      #64748b;
+      --user-bg:    #1e3a5f;
+      --model-bg:   #1a1a2e;
+      --radius:     14px;
+    }
+
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ────────── Top bar ────────── */
+    #topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo .flame { font-size: 24px; }
+    .logo h1 { font-size: 20px; font-weight: 800; letter-spacing: -.5px; }
+    .logo h1 span { color: var(--orange); }
+
+    /* Mode tabs */
+    #mode-tabs {
+      display: flex;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px;
+    }
+    .mode-tab {
+      padding: 6px 16px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      transition: all .2s;
+    }
+    .mode-tab:hover { color: var(--text); }
+    .mode-tab.active {
+      background: var(--surface2);
+      color: var(--orange);
+      border: 1px solid var(--border);
+    }
+
+    /* Connection + model badge */
+    #meta-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 12px;
+    }
+    #conn-badge { display: flex; align-items: center; gap: 5px; }
+    #conn-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background .3s;
+    }
+    #conn-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    #conn-dot.error     { background: var(--red); }
+    #model-badge {
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-family: monospace;
+    }
+
+    /* ────────── Main layout ────────── */
+    #main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ────────── Left panel ────────── */
+    #left {
+      flex: 0 0 52%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 20px;
+      border-right: 1px solid var(--border);
+      gap: 20px;
+    }
+
+    /* Status */
+    #status-row { text-align: center; }
+    #status {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      transition: color .3s;
+    }
+
+    /* Visualiser */
+    #viz {
+      position: relative;
+      width: 220px; height: 220px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .ring {
+      position: absolute; border-radius: 50%;
+      border: 1.5px solid transparent;
+    }
+    .ring-1 { width: 220px; height: 220px; }
+    .ring-2 { width: 180px; height: 180px; }
+    .ring-3 { width: 140px; height: 140px; }
+
+    @keyframes pulse-orange {
+      0%,100% { transform:scale(1);    opacity:.5; border-color:var(--orange); }
+      50%      { transform:scale(1.07); opacity:1;  border-color:var(--amber);  }
+    }
+    @keyframes pulse-blue {
+      0%,100% { transform:scale(1);    opacity:.4; border-color:var(--blue); }
+      50%      { transform:scale(1.07); opacity:1;  border-color:#93c5fd;    }
+    }
+    @keyframes pulse-amber {
+      0%,100% { transform:scale(1);    opacity:.4; border-color:var(--amber); }
+      50%      { transform:scale(1.04); opacity:.9; border-color:var(--orange); }
+    }
+
+    body.listening  .ring { animation: pulse-orange 0.9s ease-in-out infinite; }
+    body.speaking   .ring { animation: pulse-blue   0.9s ease-in-out infinite; }
+    body.processing .ring { animation: pulse-amber  1.2s ease-in-out infinite; }
+    body.listening  #status { color: var(--orange); }
+    body.speaking   #status { color: var(--blue);   }
+    body.processing #status { color: var(--amber);  }
+
+    #mic-btn {
+      width: 90px; height: 90px;
+      border-radius: 50%;
+      background: var(--surface2);
+      border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 34px;
+      cursor: pointer;
+      transition: background .2s, box-shadow .2s, transform .1s;
+      user-select: none;
+      position: relative; z-index: 1;
+    }
+    #mic-btn:hover { background: #1a1a30; transform: scale(1.04); }
+    body.listening #mic-btn {
+      background: #7c2d12;
+      box-shadow: 0 0 48px #f9731666;
+    }
+
+    /* Camera preview */
+    #camera-wrap {
+      display: none; width: 100%; max-width: 300px;
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    #camera-wrap.visible { display: block; }
+    #camera-preview { width: 100%; display: block; }
+
+    /* Controls row */
+    #controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+    .ctrl-btn {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .8px;
+      text-transform: uppercase;
+      transition: all .2s;
+      min-width: 72px;
+    }
+    .ctrl-btn:hover { color: var(--text); border-color: #2e2e50; background: #1a1a30; }
+    .ctrl-btn.active { border-color: var(--orange); color: var(--orange); }
+    .ctrl-btn .icon { font-size: 20px; }
+
+    /* Text input */
+    #text-row {
+      display: flex; gap: 8px; width: 100%;
+    }
+    #text-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    #text-input:focus { border-color: var(--orange); }
+    #text-input::placeholder { color: var(--muted); }
+    #send-btn {
+      background: var(--orange);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 0 20px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background .2s;
+      white-space: nowrap;
+    }
+    #send-btn:hover { background: #ea6c0a; }
+
+    /* ────────── Right panel ────────── */
+    #right {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #right-header {
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    #right-header h2 {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    #clear-btn {
+      font-size: 11px;
+      color: var(--muted);
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 10px;
+      cursor: pointer;
+    }
+    #clear-btn:hover { color: var(--text); }
+
+    #transcript {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #transcript::-webkit-scrollbar { width: 3px; }
+    #transcript::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .msg {
+      max-width: 88%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      animation: fadeUp .2s ease;
+    }
+    @keyframes fadeUp {
+      from { opacity:0; transform:translateY(6px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .msg.user  { align-self:flex-end;  background:var(--user-bg);  border-bottom-right-radius:4px; }
+    .msg.model { align-self:flex-start; background:var(--model-bg); border-bottom-left-radius:4px; }
+    .msg .role {
+      font-size: 10px; font-weight: 800;
+      letter-spacing: 1.5px; text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .msg.user  .role { color: var(--blue); }
+    .msg.model .role { color: var(--orange); }
+
+    /* Typing indicator */
+    #typing {
+      display: none;
+      align-self: flex-start;
+      background: var(--model-bg);
+      border-radius: 14px;
+      border-bottom-left-radius: 4px;
+      padding: 12px 16px;
+    }
+    #typing.visible { display: flex; gap: 5px; }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      animation: bounce .9s infinite;
+    }
+    .dot:nth-child(2) { animation-delay: .15s; }
+    .dot:nth-child(3) { animation-delay: .3s; }
+    @keyframes bounce {
+      0%,80%,100% { transform:translateY(0); }
+      40%          { transform:translateY(-6px); background:var(--orange); }
+    }
+
+    /* Hidden */
+    canvas, #image-file { display: none; }
+    #img-preview {
+      display: none; position: fixed;
+      bottom: 90px; left: 50%; transform: translateX(-50%);
+      max-width: 180px; border-radius: 10px;
+      border: 2px solid var(--orange); z-index: 99;
+    }
+    #img-preview.visible { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- ── Top bar ──────────────────────────────────────────────────────── -->
+<div id="topbar">
+  <div class="logo">
+    <span class="flame">🔥</span>
+    <h1>Pro<span>metheus</span></h1>
+  </div>
+
+  <div id="mode-tabs"><!-- populated by JS --></div>
+
+  <div id="meta-bar">
+    <div id="conn-badge">
+      <div id="conn-dot"></div>
+      <span id="conn-label">Connecting…</span>
+    </div>
+    <div id="model-badge">—</div>
+  </div>
+</div>
+
+<!-- ── Main ─────────────────────────────────────────────────────────── -->
+<div id="main">
+
+  <!-- Left -->
+  <div id="left">
+    <div id="status-row"><div id="status">Ready</div></div>
+
+    <div id="viz">
+      <div class="ring ring-1"></div>
+      <div class="ring ring-2"></div>
+      <div class="ring ring-3"></div>
+      <div id="mic-btn" title="Click to start / stop recording">🎤</div>
+    </div>
+
+    <div id="camera-wrap">
+      <video id="camera-preview" autoplay muted playsinline></video>
+    </div>
+
+    <div id="controls">
+      <button class="ctrl-btn" id="camera-btn">
+        <span class="icon">📷</span>Camera
+      </button>
+      <button class="ctrl-btn" id="img-btn">
+        <span class="icon">🖼️</span>Image
+      </button>
+    </div>
+
+    <div id="text-row">
+      <input id="text-input" type="text" placeholder="Type a message or hold 🎤 to speak…"/>
+      <button id="send-btn">Send</button>
+    </div>
+
+    <input type="file" id="image-file" accept="image/*"/>
+    <canvas id="frame-canvas"></canvas>
+  </div>
+
+  <!-- Right -->
+  <div id="right">
+    <div id="right-header">
+      <h2>Conversation</h2>
+      <button id="clear-btn">Clear</button>
+    </div>
+    <div id="transcript">
+      <div id="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+    </div>
+  </div>
+
+</div>
+
+<img id="img-preview" alt="preview"/>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  State
+// ════════════════════════════════════════════════════════════
+let ws              = null;
+let isRecording     = false;
+let cameraOn        = false;
+let videoStream     = null;
+let audioStream     = null;
+let audioCtx        = null;
+let processor       = null;
+let frameTimer      = null;
+let processingTimer = null;  // safety reset if no response in 45s
+let reconnectTimer  = null;  // single reconnect timer — prevents cascade reconnects
+let currentMode     = 'voice';
+let modes           = [];
+
+// Audio playback
+const playCtx    = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+let nextPlayTime  = 0;
+let activeSources = [];  // tracks playing BufferSourceNodes for interruption
+
+// ════════════════════════════════════════════════════════════
+//  DOM refs
+// ════════════════════════════════════════════════════════════
+const micBtn       = document.getElementById('mic-btn');
+const cameraBtn    = document.getElementById('camera-btn');
+const imgBtn       = document.getElementById('img-btn');
+const imageFile    = document.getElementById('image-file');
+const textInput    = document.getElementById('text-input');
+const sendBtn      = document.getElementById('send-btn');
+const transcript   = document.getElementById('transcript');
+const typing       = document.getElementById('typing');
+const statusEl     = document.getElementById('status');
+const connDot      = document.getElementById('conn-dot');
+const connLabel    = document.getElementById('conn-label');
+const modelBadge   = document.getElementById('model-badge');
+const modeTabs     = document.getElementById('mode-tabs');
+const cameraWrap   = document.getElementById('camera-wrap');
+const camPreview   = document.getElementById('camera-preview');
+const frameCanvas  = document.getElementById('frame-canvas');
+const imgPreview   = document.getElementById('img-preview');
+const clearBtn     = document.getElementById('clear-btn');
+
+// ════════════════════════════════════════════════════════════
+//  Modes
+// ════════════════════════════════════════════════════════════
+async function loadModes() {
+  try {
+    const res = await fetch('/api/modes');
+    modes = await res.json();
+  } catch {
+    modes = [
+      { id: 'voice', label: '🎤 Voice' },
+      { id: 'text',  label: '💬 Text'  },
+    ];
+  }
+  renderTabs();
+}
+
+function renderTabs() {
+  modeTabs.innerHTML = '';
+  modes.forEach(m => {
+    const btn = document.createElement('button');
+    btn.className = 'mode-tab' + (m.id === currentMode ? ' active' : '');
+    btn.textContent = m.label;
+    btn.addEventListener('click', () => switchMode(m.id));
+    modeTabs.appendChild(btn);
+  });
+}
+
+function switchMode(id) {
+  if (id === currentMode) return;
+  currentMode = id;
+  renderTabs();
+  reconnect();
+}
+
+// ════════════════════════════════════════════════════════════
+//  WebSocket
+// ════════════════════════════════════════════════════════════
+
+// Safely tear down the current WebSocket WITHOUT triggering onclose → reconnect cascade.
+// Always call this before creating a new connection or scheduling a reconnect.
+function destroyWs() {
+  if (!ws) return;
+  ws.onopen    = null;   // ← critical: suppress all handlers so they don't fire
+  ws.onclose   = null;   //   when we manually close; prevents cascade reconnects
+  ws.onerror   = null;
+  ws.onmessage = null;
+  if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+    ws.close();
+  }
+  ws = null;
+}
+
+function connect() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  destroyWs();
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?mode=${currentMode}`);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    connDot.className = 'connected';
+    connLabel.textContent = 'Connected';
+    setStatus('Ready');
+  };
+
+  ws.onclose = () => {
+    connDot.className = 'error';
+    connLabel.textContent = 'Disconnected';
+    setStatus('Reconnecting…');
+    reconnectTimer = setTimeout(connect, 2500);  // single timer, replaced each time
+  };
+
+  ws.onerror = () => {
+    connDot.className = 'error';
+    connLabel.textContent = 'Error';
+  };
+
+  ws.onmessage = handleMessage;
+}
+
+function reconnect() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  destroyWs();
+  reconnectTimer = setTimeout(connect, 300);
+}
+
+function handleMessage(e) {
+  if (e.data instanceof ArrayBuffer) {
+    // Audio from model (24 kHz PCM S16LE).
+    // Discard if user is already recording — we stopped playback in startRecording()
+    // and we don't want late audio chunks to restart it or create echo.
+    if (isRecording) return;
+    playAudio(e.data);
+    setStatus('Speaking…', 'speaking');
+    return;
+  }
+  const msg = JSON.parse(e.data);
+
+  if (msg.type === 'mode') {
+    modelBadge.textContent = msg.model || msg.label;
+  }
+  else if (msg.type === 'transcript') {
+    hideTyping();
+    addMessage(msg.role, msg.text);
+  }
+  else if (msg.type === 'turn_complete') {
+    hideTyping();
+    nextPlayTime = 0;
+    // Don't clobber 'listening' state — if user is already recording a follow-up,
+    // let them finish; the state will reset naturally when they stop.
+    if (!isRecording) {
+      setStatus('Ready');
+      document.body.className = '';
+    }
+  }
+  else if (msg.type === 'error') {
+    addMessage('model', `⚠️ ${msg.text}`);
+    setStatus('Error', '');
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Audio playback  (model → browser)
+// ════════════════════════════════════════════════════════════
+function playAudio(buffer) {
+  const i16   = new Int16Array(buffer);
+  const f32   = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+  const buf   = playCtx.createBuffer(1, f32.length, 24000);
+  buf.getChannelData(0).set(f32);
+  const src   = playCtx.createBufferSource();
+  src.buffer  = buf;
+  src.connect(playCtx.destination);
+  const start = Math.max(playCtx.currentTime + 0.04, nextPlayTime);
+  src.start(start);
+  nextPlayTime = start + buf.duration;
+  activeSources.push(src);
+  src.onended = () => { activeSources = activeSources.filter(s => s !== src); };
+}
+
+// Stop all queued/playing model audio immediately.
+// Called when the user clicks the mic to speak — prevents echo and enables true interruption.
+function stopAllAudio() {
+  activeSources.forEach(s => { try { s.stop(0); } catch(e) {} });
+  activeSources = [];
+  nextPlayTime  = 0;
+}
+
+// ════════════════════════════════════════════════════════════
+//  Audio capture  (browser → server) — 16 kHz mono S16LE
+// ════════════════════════════════════════════════════════════
+function resample(input, fromRate, toRate) {
+  if (fromRate === toRate) return input;
+  const ratio = fromRate / toRate;
+  const out   = new Float32Array(Math.ceil(input.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const src = i * ratio;
+    const idx = Math.floor(src);
+    const frac = src - idx;
+    out[i] = (input[idx] ?? 0) + frac * ((input[idx + 1] ?? 0) - (input[idx] ?? 0));
+  }
+  return out;
+}
+
+function toInt16(f32) {
+  const i16 = new Int16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return i16;
+}
+
+async function startRecording() {
+  if (isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+  // Stop any model audio playing right now so the mic doesn't pick it up (echo prevention)
+  // and so the user's voice immediately interrupts the model response.
+  stopAllAudio();
+
+  // Request mic BEFORE marking isRecording — if it fails, state stays clean
+  try {
+    audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+    });
+  } catch (err) {
+    console.error('Mic access failed:', err.name, err.message);
+    setStatus('⚠️ Mic error — check browser permissions', '');
+    return;  // abort cleanly; isRecording stays false
+  }
+
+  isRecording = true;
+  setStatus('Listening…', 'listening');
+  resumeAudio();  // ensure playCtx is running while mic is open
+
+  audioCtx  = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaStreamSource(audioStream);
+  processor = audioCtx.createScriptProcessor(4096, 1, 1);
+  src.connect(processor);
+  processor.connect(audioCtx.destination);
+
+  let chunksSent = 0;
+  processor.onaudioprocess = ev => {
+    if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const pcm = toInt16(resample(ev.inputBuffer.getChannelData(0), audioCtx.sampleRate, 16000));
+    ws.send(pcm.buffer);
+    chunksSent++;
+    if (chunksSent === 1) console.log('[mic] First audio chunk sent ✓');
+    if (chunksSent % 20 === 0) console.log(`[mic] ${chunksSent} chunks sent`);
+  };
+  // Store chunk counter on processor so stopRecording() can log it
+  processor._chunksSent = () => chunksSent;
+}
+
+function stopRecording() {
+  if (!isRecording) return;
+  isRecording = false;
+  setStatus('Processing…', 'processing');
+  showTyping();
+
+  const totalChunks = processor?._chunksSent?.() ?? 0;
+  console.log(`[mic] Recording stopped — ${totalChunks} chunks sent to server`);
+  if (totalChunks === 0) {
+    console.warn('[mic] WARNING: 0 chunks sent — mic may not have captured audio');
+    setStatus('⚠️ No audio captured — try again', '');
+    hideTyping();
+    return;  // don't send end_of_turn if nothing was captured
+  }
+
+  processor?.disconnect(); processor = null;
+  audioCtx?.close();       audioCtx  = null;
+  audioStream?.getTracks().forEach(t => t.stop()); audioStream = null;
+
+  if (ws && ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ type: 'end_of_turn' }));
+}
+
+// Click-to-toggle recording (more reliable than hold-to-talk across browsers)
+micBtn.addEventListener('click', () => {
+  if (isRecording) {
+    // User wants to stop — always allow this
+    stopRecording();
+  } else if (document.body.className === 'processing') {
+    // Model hasn't responded yet.  First click = cancel the wait and reset to Ready
+    // (user can then click a second time to start a fresh recording).
+    // We do NOT start recording immediately to avoid sending a duplicate end_of_turn.
+    console.log('[mic] Cancelling pending request — resetting to Ready');
+    hideTyping();
+    setStatus('Ready');
+  } else {
+    // Ready or speaking — start recording (interrupts model audio if it was playing)
+    resumeAudio();
+    startRecording();
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  Camera
+// ════════════════════════════════════════════════════════════
+cameraBtn.addEventListener('click', async () => {
+  resumeAudio();
+  if (!cameraOn) {
+    videoStream = await navigator.mediaDevices.getUserMedia({ video: { width:320, height:240 } });
+    camPreview.srcObject = videoStream;
+    cameraWrap.classList.add('visible');
+    cameraBtn.classList.add('active');
+    cameraOn = true;
+
+    frameTimer = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      frameCanvas.width = 320; frameCanvas.height = 240;
+      frameCanvas.getContext('2d').drawImage(camPreview, 0, 0, 320, 240);
+      frameCanvas.toBlob(blob => {
+        const reader = new FileReader();
+        reader.onloadend = () => ws.send(JSON.stringify({ type: 'image', data: reader.result.split(',')[1] }));
+        reader.readAsDataURL(blob);
+      }, 'image/jpeg', 0.65);
+    }, 2000);
+  } else {
+    clearInterval(frameTimer);
+    videoStream?.getTracks().forEach(t => t.stop());
+    camPreview.srcObject = null;
+    cameraWrap.classList.remove('visible');
+    cameraBtn.classList.remove('active');
+    cameraOn = false;
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  Image upload
+// ════════════════════════════════════════════════════════════
+imgBtn.addEventListener('click', () => { resumeAudio(); imageFile.click(); });
+imageFile.addEventListener('change', () => {
+  const file = imageFile.files[0];
+  if (!file || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const b64 = reader.result.split(',')[1];
+    ws.send(JSON.stringify({ type: 'image', data: b64 }));
+    imgPreview.src = reader.result;
+    imgPreview.classList.add('visible');
+    setTimeout(() => imgPreview.classList.remove('visible'), 4000);
+    addMessage('user', '📷 Image shared');
+    showTyping();
+    setStatus('Processing…', 'processing');
+  };
+  reader.readAsDataURL(file);
+  imageFile.value = '';
+});
+
+// ════════════════════════════════════════════════════════════
+//  Audio context helper — must be called from a user gesture
+// ════════════════════════════════════════════════════════════
+function resumeAudio() {
+  if (playCtx.state !== 'running') playCtx.resume().catch(() => {});
+}
+
+// ════════════════════════════════════════════════════════════
+//  Text input
+// ════════════════════════════════════════════════════════════
+function sendText() {
+  resumeAudio();
+  const text = textInput.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'text', content: text }));
+  addMessage('user', text);
+  textInput.value = '';
+  showTyping();
+  setStatus('Processing…', 'processing');
+}
+sendBtn.addEventListener('click', sendText);
+textInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); } });
+
+// ════════════════════════════════════════════════════════════
+//  UI helpers
+// ════════════════════════════════════════════════════════════
+function setStatus(text, cls = '') {
+  statusEl.textContent = text;
+  document.body.className = cls;
+}
+
+function addMessage(role, text) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'Prometheus'}</div>${escHtml(text)}`;
+  transcript.insertBefore(div, typing);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function showTyping() {
+  typing.classList.add('visible');
+  transcript.scrollTop = transcript.scrollHeight;
+  // Safety: if no response within 45s, reset UI so user isn't stuck
+  clearTimeout(processingTimer);
+  processingTimer = setTimeout(() => {
+    hideTyping();
+    if (document.body.className !== 'listening') {
+      setStatus('Ready');
+      document.body.className = '';
+    }
+  }, 45000);
+}
+function hideTyping() {
+  typing.classList.remove('visible');
+  clearTimeout(processingTimer);
+  processingTimer = null;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+clearBtn.addEventListener('click', () => {
+  [...transcript.querySelectorAll('.msg')].forEach(el => el.remove());
+});
+
+// ════════════════════════════════════════════════════════════
+//  Boot
+// ════════════════════════════════════════════════════════════
+(async () => {
+  await loadModes();
+  connect();
+})();
+</script>
+</body>
+</html>
