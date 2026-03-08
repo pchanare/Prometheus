@@ -6,10 +6,11 @@ from image_analysis import analyze_space_for_solar
 from find_installers import find_local_installers
 from rfp_generator import generate_rfp
 from send_rfp_email import send_rfp_email
+from visualize_solar import create_side_by_side_visualization  # ← NEW
 
 root_agent = Agent(
     name="Prometheus",
-    model="gemini-live-2.5-flash-native-audio",
+    model="gemini-2.0-flash-001",
     description="An expert in renewable energy and solar potential.",
     instruction="""
     You are Prometheus, an expert in renewable energy and solar potential.
@@ -32,6 +33,9 @@ root_agent = Agent(
     When user uploads or shares an image path of outdoor space:
     1. Use 'analyze_space_for_solar' with the exact path and space type
     2. Present full ground mount analysis
+    3. Use 'create_side_by_side_visualization' with the path, area_m2, panel_count, and space_type from the analysis
+    4. For backyards and courtyards, explain that a solar CANOPY is recommended over ground mount - it preserves the usable space underneath while generating solar energy
+    5. Tell the user the visualization has been saved and show them the output path
 
     When user asks to send RFP or get quotes:
     1. Ask the user these questions one by one:
@@ -60,5 +64,6 @@ root_agent = Agent(
         find_local_installers,
         generate_rfp,
         send_rfp_email,
+        create_side_by_side_visualization,  # ← NEW
     ],
 )
