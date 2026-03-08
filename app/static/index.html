@@ -191,9 +191,27 @@
       display: none; width: 100%; max-width: 300px;
       border-radius: 12px; overflow: hidden;
       border: 1px solid var(--border);
+      flex-direction: column;
     }
-    #camera-wrap.visible { display: block; }
+    #camera-wrap.visible { display: flex; }
     #camera-preview { width: 100%; display: block; }
+
+    /* Capture button — sits below the video feed inside the camera card */
+    #capture-btn {
+      width: 100%;
+      padding: 11px;
+      background: var(--orange);
+      color: #fff;
+      border: none;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: .5px;
+      cursor: pointer;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+    #capture-btn:hover  { background: #ea6c0a; }
+    #capture-btn:active { background: #c2560a; transform: scale(.98); }
 
     /* Controls row */
     #controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
@@ -341,7 +359,7 @@
     }
 
     /* Hidden */
-    canvas, #image-file { display: none; }
+    canvas, #image-file, #pdf-file { display: none; }
     #img-preview {
       display: none; position: fixed;
       bottom: 90px; left: 50%; transform: translateX(-50%);
@@ -349,6 +367,15 @@
       border: 2px solid var(--orange); z-index: 99;
     }
     #img-preview.visible { display: block; }
+
+    /* Solar mockup image inside chat bubbles */
+    .mockup-img {
+      width: 100%; border-radius: 8px; margin-top: 8px;
+      display: block; cursor: zoom-in;
+    }
+    .mockup-caption {
+      margin-top: 6px; font-size: 13px; color: var(--muted);
+    }
   </style>
 </head>
 <body>
@@ -387,6 +414,7 @@
 
     <div id="camera-wrap">
       <video id="camera-preview" autoplay muted playsinline></video>
+      <button id="capture-btn">📸 Capture</button>
     </div>
 
     <div id="controls">
@@ -396,6 +424,9 @@
       <button class="ctrl-btn" id="img-btn">
         <span class="icon">🖼️</span>Image
       </button>
+      <button class="ctrl-btn" id="pdf-btn">
+        <span class="icon">📄</span>PDF Doc
+      </button>
     </div>
 
     <div id="text-row">
@@ -404,6 +435,7 @@
     </div>
 
     <input type="file" id="image-file" accept="image/*"/>
+    <input type="file" id="pdf-file"   accept="application/pdf"/>
     <canvas id="frame-canvas"></canvas>
   </div>
 
@@ -450,6 +482,8 @@ let activeSources = [];  // tracks playing BufferSourceNodes for interruption
 const micBtn       = document.getElementById('mic-btn');
 const cameraBtn    = document.getElementById('camera-btn');
 const imgBtn       = document.getElementById('img-btn');
+const pdfBtn       = document.getElementById('pdf-btn');
+const pdfFile      = document.getElementById('pdf-file');
 const imageFile    = document.getElementById('image-file');
 const textInput    = document.getElementById('text-input');
 const sendBtn      = document.getElementById('send-btn');
@@ -462,6 +496,7 @@ const modelBadge   = document.getElementById('model-badge');
 const modeTabs     = document.getElementById('mode-tabs');
 const cameraWrap   = document.getElementById('camera-wrap');
 const camPreview   = document.getElementById('camera-preview');
+const captureBtn   = document.getElementById('capture-btn');
 const frameCanvas  = document.getElementById('frame-canvas');
 const imgPreview   = document.getElementById('img-preview');
 const clearBtn     = document.getElementById('clear-btn');
@@ -584,6 +619,15 @@ function handleMessage(e) {
       document.body.className = '';
     }
   }
+  else if (msg.type === 'solar_mockup') {
+    // Server detected a generate_solar_mockup tool response — display the AI image.
+    hideTyping();
+    addSolarMockup(msg.image_b64, msg.mime_type || 'image/jpeg', msg.message || '');
+    if (!isRecording) {
+      setStatus('Ready');
+      document.body.className = '';
+    }
+  }
   else if (msg.type === 'error') {
     addMessage('model', `⚠️ ${msg.text}`);
     setStatus('Error', '');
@@ -664,6 +708,10 @@ async function startRecording() {
   setStatus('Listening…', 'listening');
   resumeAudio();  // ensure playCtx is running while mic is open
 
+  // Tell the model the user has started speaking (explicit turn control — VAD disabled)
+  if (ws && ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ type: 'activity_start' }));
+
   audioCtx  = new (window.AudioContext || window.webkitAudioContext)();
   const src = audioCtx.createMediaStreamSource(audioStream);
   processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -731,24 +779,42 @@ micBtn.addEventListener('click', () => {
 cameraBtn.addEventListener('click', async () => {
   resumeAudio();
   if (!cameraOn) {
-    videoStream = await navigator.mediaDevices.getUserMedia({ video: { width:320, height:240 } });
+    try {
+      videoStream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480 } });
+    } catch (err) {
+      console.error('Camera access failed:', err.name, err.message);
+      setStatus('⚠️ Camera error — check browser permissions', '');
+      return;
+    }
     camPreview.srcObject = videoStream;
     cameraWrap.classList.add('visible');
     cameraBtn.classList.add('active');
     cameraOn = true;
 
+    // Stream a frame every 1.5 s as silent visual context so the model can
+    // answer voice questions like "what do you see?" without the user clicking Capture.
+    // Frames are small (320×240, 50% quality) — just enough for understanding.
+    // Skip frames while the model is already processing/speaking to avoid overload.
     frameTimer = setInterval(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      frameCanvas.width = 320; frameCanvas.height = 240;
+      const skip = document.body.className === 'processing' || document.body.className === 'speaking';
+      if (skip) return;
+      frameCanvas.width  = 320;
+      frameCanvas.height = 240;
       frameCanvas.getContext('2d').drawImage(camPreview, 0, 0, 320, 240);
       frameCanvas.toBlob(blob => {
+        if (!blob || !ws || ws.readyState !== WebSocket.OPEN) return;
         const reader = new FileReader();
-        reader.onloadend = () => ws.send(JSON.stringify({ type: 'image', data: reader.result.split(',')[1] }));
+        reader.onloadend = () => {
+          ws.send(JSON.stringify({ type: 'image', data: reader.result.split(',')[1] }));
+        };
         reader.readAsDataURL(blob);
-      }, 'image/jpeg', 0.65);
-    }, 2000);
+      }, 'image/jpeg', 0.5);
+    }, 1500);
+
   } else {
     clearInterval(frameTimer);
+    frameTimer = null;
     videoStream?.getTracks().forEach(t => t.stop());
     camPreview.srcObject = null;
     cameraWrap.classList.remove('visible');
@@ -758,25 +824,166 @@ cameraBtn.addEventListener('click', async () => {
 });
 
 // ════════════════════════════════════════════════════════════
+//  Camera capture — snapshot current frame → send to model
+// ════════════════════════════════════════════════════════════
+captureBtn.addEventListener('click', () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !cameraOn) return;
+  resumeAudio();
+
+  // Draw the live video frame into the canvas at its native resolution
+  const w = camPreview.videoWidth  || 320;
+  const h = camPreview.videoHeight || 240;
+  frameCanvas.width  = w;
+  frameCanvas.height = h;
+  frameCanvas.getContext('2d').drawImage(camPreview, 0, 0, w, h);
+
+  frameCanvas.toBlob(blob => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const b64 = reader.result.split(',')[1];
+
+      // Pause the passive live stream for 8 s so the model isn't flooded
+      // with new background frames while it's describing the captured image.
+      clearInterval(frameTimer);
+      frameTimer = null;
+      setTimeout(() => {
+        if (cameraOn) {
+          frameTimer = setInterval(() => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            const skip = document.body.className === 'processing' || document.body.className === 'speaking';
+            if (skip) return;
+            frameCanvas.width  = 320; frameCanvas.height = 240;
+            frameCanvas.getContext('2d').drawImage(camPreview, 0, 0, 320, 240);
+            frameCanvas.toBlob(b => {
+              if (!b || !ws || ws.readyState !== WebSocket.OPEN) return;
+              const r = new FileReader();
+              r.onloadend = () => ws.send(JSON.stringify({ type: 'image', data: r.result.split(',')[1] }));
+              r.readAsDataURL(b);
+            }, 'image/jpeg', 0.5);
+          }, 1500);
+        }
+      }, 8000);
+
+      // Send as 'capture' (server uses send_content + text label → forces model turn)
+      ws.send(JSON.stringify({ type: 'capture', data: b64 }));
+      // Show thumbnail preview briefly
+      imgPreview.src = reader.result;
+      imgPreview.classList.add('visible');
+      setTimeout(() => imgPreview.classList.remove('visible'), 4000);
+      addMessage('user', '📸 Photo captured');
+      showTyping();
+      setStatus('Processing…', 'processing');
+    };
+    reader.readAsDataURL(blob);
+  }, 'image/jpeg', 0.85);
+});
+
+// ════════════════════════════════════════════════════════════
 //  Image upload
 // ════════════════════════════════════════════════════════════
 imgBtn.addEventListener('click', () => { resumeAudio(); imageFile.click(); });
 imageFile.addEventListener('change', () => {
   const file = imageFile.files[0];
   if (!file || !ws || ws.readyState !== WebSocket.OPEN) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const b64 = reader.result.split(',')[1];
-    ws.send(JSON.stringify({ type: 'image', data: b64 }));
-    imgPreview.src = reader.result;
-    imgPreview.classList.add('visible');
-    setTimeout(() => imgPreview.classList.remove('visible'), 4000);
-    addMessage('user', '📷 Image shared');
-    showTyping();
-    setStatus('Processing…', 'processing');
+
+  // The raw file may be PNG, HEIC, WEBP, BMP, etc.
+  // send_realtime rejects anything that isn't valid JPEG, so we always
+  // draw through a canvas first to normalise the format.
+  // We also send as 'capture' (send_content + label) instead of 'image'
+  // (send_realtime) so the model responds immediately, just like camera capture.
+  const objectUrl = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    // Cap at 1280px wide so the payload stays reasonable
+    const maxW = 1280;
+    let w = img.naturalWidth, h = img.naturalHeight;
+    if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+    frameCanvas.width  = w;
+    frameCanvas.height = h;
+    frameCanvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(objectUrl);
+
+    frameCanvas.toBlob(blob => {
+      if (!blob) { addMessage('model', '⚠️ Could not process the image. Please try a JPEG or PNG.'); return; }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const b64 = reader.result.split(',')[1];
+        // Send as 'capture' — server uses send_content + text label → triggers model response
+        ws.send(JSON.stringify({ type: 'capture', data: b64 }));
+        imgPreview.src = reader.result;
+        imgPreview.classList.add('visible');
+        setTimeout(() => imgPreview.classList.remove('visible'), 4000);
+        addMessage('user', '🖼️ Image uploaded');
+        showTyping();
+        setStatus('Processing…', 'processing');
+      };
+      reader.readAsDataURL(blob);
+    }, 'image/jpeg', 0.85);
   };
-  reader.readAsDataURL(file);
+  img.onerror = () => {
+    URL.revokeObjectURL(objectUrl);
+    addMessage('model', '⚠️ Could not load that image file. Please try a JPEG or PNG.');
+  };
+  img.src = objectUrl;
   imageFile.value = '';
+});
+
+// ════════════════════════════════════════════════════════════
+//  PDF bill upload → extract with Brain specialist → inject context
+// ════════════════════════════════════════════════════════════
+pdfBtn.addEventListener('click', () => { resumeAudio(); pdfFile.click(); });
+
+pdfFile.addEventListener('change', async () => {
+  const file = pdfFile.files[0];
+  if (!file) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    addMessage('model', '⚠️ Not connected — please wait for connection and try again.');
+    return;
+  }
+
+  addMessage('user', `📄 Uploading document: ${file.name}`);
+  setStatus('Analysing document…', 'processing');
+  showTyping();
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const resp   = await fetch('/api/analyze-pdf', { method: 'POST', body: formData });
+    const result = await resp.json();
+
+    if (result.status === 'ok' && result.data && !result.data.error) {
+      const data      = result.data;
+      const docType   = data.document_type || 'Document';
+      const summary   = data.summary       || '';
+      const keyFacts  = Array.isArray(data.key_facts) ? data.key_facts : [];
+
+      // Build a readable summary for the chat
+      const lines = [`📋 ${docType} analysed!`];
+      if (summary) lines.push(summary);
+      keyFacts.forEach(f => {
+        if (f.key && f.value !== undefined && String(f.value).trim())
+          lines.push(`  • ${f.key}: ${f.value}`);
+      });
+      lines.push('\nPrometheus now has access to this document.');
+
+      addMessage('model', lines.join('\n'));
+      // Push extracted data into the live ADK session as a context_update
+      ws.send(JSON.stringify({ type: 'context_update', data }));
+    } else {
+      const errMsg = (result.data && result.data.error) || result.error || 'Unknown error';
+      addMessage('model', `⚠️ Could not extract document data: ${errMsg}`);
+    }
+  } catch (err) {
+    addMessage('model', `⚠️ Document upload failed: ${err.message}`);
+  } finally {
+    hideTyping();
+    if (!isRecording) {
+      setStatus('Ready');
+      document.body.className = '';
+    }
+    pdfFile.value = '';  // reset so same file can be re-uploaded if needed
+  }
 });
 
 // ════════════════════════════════════════════════════════════
@@ -814,6 +1021,21 @@ function addMessage(role, text) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
   div.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'Prometheus'}</div>${escHtml(text)}`;
+  transcript.insertBefore(div, typing);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+// Display a solar-panel mockup image inside a model chat bubble.
+// Opens fullscreen in a new tab when clicked.
+function addSolarMockup(b64, mimeType, caption) {
+  const src = `data:${mimeType};base64,${b64}`;
+  const div = document.createElement('div');
+  div.className = 'msg model';
+  div.innerHTML =
+    `<div class="role">Prometheus</div>` +
+    `<img class="mockup-img" src="${src}" alt="Solar panel mockup"` +
+    ` title="Click to open full-size" onclick="window.open(this.src,'_blank')"/>` +
+    (caption ? `<div class="mockup-caption">${escHtml(caption)}</div>` : '');
   transcript.insertBefore(div, typing);
   transcript.scrollTop = transcript.scrollHeight;
 }

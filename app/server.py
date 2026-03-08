@@ -14,7 +14,7 @@ import uuid
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +33,25 @@ from google.genai import types
 from google.genai.types import Modality
 
 from Prometheus.agent import root_agent
+
+# Brain import — used for PDF analysis endpoint only
+try:
+    from brain import analyze_pdf_bytes as _analyze_pdf
+    _brain_ok = True
+except Exception as _brain_err:
+    log.warning("brain import failed: %s — PDF analysis endpoint disabled", _brain_err)
+    _brain_ok = False
+
+# Solar mockup side-channel — tools store image bytes here; the send_loop
+# drains them to the browser so the base64 never enters the model's context.
+try:
+    from solar_mockup import pop_pending_images as _pop_mockup_images
+    _mockup_ok = True
+except Exception as _mockup_err:
+    log.warning("solar_mockup import failed: %s — mockup forwarding disabled", _mockup_err)
+    _mockup_ok = False
+    def _pop_mockup_images():
+        return []
 
 # ---------------------------------------------------------------------------
 # Mode registry – add new agents / models here as the project grows
@@ -108,6 +127,48 @@ async def list_modes():
 
 
 # ---------------------------------------------------------------------------
+# PDF analysis endpoint  POST /api/analyze-pdf
+# ---------------------------------------------------------------------------
+@app.post("/api/analyze-pdf")
+async def analyze_pdf(file: UploadFile = File(...)):
+    """
+    Accept any relevant PDF upload (electricity bill, solar quote, roof inspection,
+    HOA rules, building permit, etc.), extract structured data using the PDF
+    Specialist model tier, and return a JSON object.
+
+    The browser sends the extracted data back through the WebSocket as a
+    { type: 'context_update', data: {...} } message so the agent can use it.
+    """
+    if not _brain_ok:
+        return JSONResponse(
+            {"error": "PDF analysis module is not available."},
+            status_code=503,
+        )
+
+    try:
+        pdf_bytes = await file.read()
+        log.info("analyze-pdf: received %d bytes (%s)", len(pdf_bytes), file.filename)
+
+        # Run in thread-pool so we don't block the event loop during model I/O
+        loop = asyncio.get_event_loop()
+        json_str = await loop.run_in_executor(None, _analyze_pdf, pdf_bytes)
+
+        # Parse and re-serialise to validate the JSON
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            log.warning("analyze-pdf: model returned non-JSON: %s", json_str[:200])
+            data = {"raw": json_str, "error": "Could not parse model output as JSON"}
+
+        log.info("analyze-pdf: extracted %s", data)
+        return JSONResponse({"status": "ok", "data": data})
+
+    except Exception as exc:
+        log.error("analyze-pdf error: %s", exc)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ---------------------------------------------------------------------------
 # WebSocket  /ws?mode=voice|text
 # ---------------------------------------------------------------------------
 @app.websocket("/ws")
@@ -138,17 +199,36 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
         )
 
     live_queue = LiveRequestQueue()
-    # Enable output transcription for voice mode so text appears in transcript.
-    # Wrapped in try/except because AudioTranscriptionConfig may not exist in
-    # older ADK/genai versions — the field is silently dropped if unsupported.
+
+    # Disable server-side VAD and use explicit ActivityStart/ActivityEnd signals
+    # instead of silence bursts.  This gives deterministic turn control and avoids
+    # the ~3-4 minute delay that happens when VAD gets confused by interleaved
+    # camera frames in the realtime stream.
     try:
         transcription = types.AudioTranscriptionConfig() if mode == "voice" else None
-        run_config = RunConfig(
+
+        # Build RunConfig — try context_window_compression (not yet in all ADK builds)
+        run_config_kwargs = dict(
             response_modalities=modalities,
             output_audio_transcription=transcription,
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    disabled=True  # we send ActivityStart/End explicitly
+                )
+            ),
         )
-    except (AttributeError, Exception):
-        log.warning("output_audio_transcription not supported in this ADK version — skipping")
+        # Attach context-window compression if the ADK version supports it
+        try:
+            from google.adk.runners import ContextWindowCompressionConfig  # type: ignore
+            run_config_kwargs["context_window_compression"] = ContextWindowCompressionConfig()
+            log.info("Context window compression enabled")
+        except ImportError:
+            log.debug("ContextWindowCompressionConfig not available in this ADK build")
+
+        run_config = RunConfig(**run_config_kwargs)
+
+    except (AttributeError, Exception) as e:
+        log.warning("Could not configure realtime_input_config (%s) — falling back to VAD mode", e)
         run_config = RunConfig(response_modalities=modalities)
 
     # Notify client which mode is active
@@ -192,18 +272,81 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         )
 
                     elif kind == "image":
+                        # Passive image (e.g. uploaded file) — sent as realtime context
                         img_bytes = base64.b64decode(payload["data"])
                         live_queue.send_realtime(
                             types.Blob(data=img_bytes, mime_type="image/jpeg")
                         )
 
-                    elif kind == "end_of_turn":
-                        # 1.5 s silence burst — Gemini Live VAD needs enough trailing silence
-                        # to detect end-of-speech and trigger a model response
-                        log.info("end_of_turn received — audio chunks so far: %d — sending 1.5s silence", audio_chunks)
-                        live_queue.send_realtime(
-                            types.Blob(data=bytes(48000), mime_type="audio/pcm;rate=16000")
+                    elif kind == "capture":
+                        # Explicit image turn (camera snapshot OR uploaded file).
+                        # The optional 'label' field lets the browser set context-
+                        # appropriate text so the model knows what kind of image it is.
+                        img_bytes = base64.b64decode(payload["data"])
+                        label = payload.get("label") or "I just shared this image. Please describe what you see and how it might relate to solar installation."
+                        log.info("Capture received: %d bytes — label=%r", len(img_bytes), label[:60])
+                        live_queue.send_content(
+                            types.Content(
+                                role="user",
+                                parts=[
+                                    types.Part(
+                                        inline_data=types.Blob(
+                                            data=img_bytes,
+                                            mime_type="image/jpeg",
+                                        )
+                                    ),
+                                    types.Part(text=label),
+                                ],
+                            )
                         )
+
+                    elif kind == "context_update":
+                        # Injected context from the browser — the PDF Specialist model
+                        # extracted structured data from any uploaded document.
+                        # Format it as a natural-language note and inject into the
+                        # live session so the agent can reference it immediately.
+                        data = payload.get("data", {})
+                        log.info("context_update received: type=%s", data.get("document_type", "unknown"))
+
+                        doc_type  = data.get("document_type", "Document")
+                        summary   = data.get("summary", "")
+                        key_facts = data.get("key_facts") or []
+
+                        lines = [f"[SYSTEM NOTE — {doc_type} analysed by PDF Specialist]"]
+                        if summary:
+                            lines.append(summary)
+                        for fact in key_facts:
+                            k = fact.get("key", "").strip()
+                            v = fact.get("value", "")
+                            if k and v is not None and str(v).strip():
+                                lines.append(f"  {k}: {v}")
+                        lines.append(
+                            "Use all information above when answering the user's questions. "
+                            "Do NOT ask the user for data that is already present here."
+                        )
+
+                        context_text = "\n".join(lines)
+                        if context_text:
+                            live_queue.send_content(
+                                types.Content(
+                                    role="user",
+                                    parts=[types.Part(text=context_text)],
+                                )
+                            )
+                            log.info("context_update injected into live session (%d chars)", len(context_text))
+
+                    elif kind == "activity_start":
+                        # User started speaking — tell the model to stop any current
+                        # response (interruption) and start listening
+                        log.info("activity_start — user began speaking")
+                        live_queue.send_activity_start()
+
+                    elif kind == "end_of_turn":
+                        # User stopped speaking — explicit signal replaces the old
+                        # silence-burst hack.  With VAD disabled this immediately
+                        # tells the model the user's turn is over and to respond.
+                        log.info("end_of_turn received — audio chunks so far: %d — sending activity_end", audio_chunks)
+                        live_queue.send_activity_end()
 
         except (WebSocketDisconnect, Exception) as exc:
             log.info("Receive loop ended: %s", exc)
@@ -221,13 +364,28 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                 live_request_queue=live_queue,
                 run_config=run_config,
             ):
-                # ── Log every event type so we can diagnose silence ─────
-                log.info("ADK event: %s | server_content=%s | content=%s",
+                # ── Log every event (actions.turn_complete is the key field) ──
+                actions = getattr(event, "actions", None)
+                log.info("ADK event: %s | server_content=%s | content=%s | turn_complete=%s | interrupted=%s",
                          type(event).__name__,
                          bool(getattr(event, "server_content", None)),
-                         bool(getattr(event, "content", None)))
+                         bool(getattr(event, "content", None)),
+                         bool(actions and getattr(actions, "turn_complete", False)),
+                         bool(actions and getattr(actions, "skip_summarization", False)))
 
-                # ── Audio / text from model ──────────────────────────────
+                # ── turn_complete / interrupted — PRIMARY path (event.actions) ──
+                # With gemini-live-*-native-audio models, server_content is always
+                # None; turn_complete arrives on event.actions.turn_complete instead.
+                if actions:
+                    if getattr(actions, "turn_complete", False):
+                        log.info("turn_complete via event.actions")
+                        await websocket.send_text(json.dumps({"type": "turn_complete"}))
+                    # interrupted fires when the user speaks over the model
+                    if getattr(actions, "interrupted", False):
+                        log.info("interrupted via event.actions")
+                        await websocket.send_text(json.dumps({"type": "turn_complete"}))
+
+                # ── Audio / text via server_content (fallback for other models) ─
                 server_content = getattr(event, "server_content", None)
                 if server_content:
                     model_turn = getattr(server_content, "model_turn", None)
@@ -235,65 +393,67 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         for part in getattr(model_turn, "parts", []) or []:
                             inline = getattr(part, "inline_data", None)
                             if inline and getattr(inline, "data", None):
-                                log.info("Sending audio chunk: %d bytes", len(inline.data))
                                 await websocket.send_bytes(inline.data)
                             if getattr(part, "text", None):
                                 await websocket.send_text(
-                                    json.dumps({
-                                        "type": "transcript",
-                                        "role": "model",
-                                        "text": part.text,
-                                    })
+                                    json.dumps({"type": "transcript", "role": "model", "text": part.text})
                                 )
-                    # Audio output transcription (text version of model's spoken reply)
                     output_tx = getattr(server_content, "output_transcription", None)
                     if output_tx and getattr(output_tx, "text", None):
                         await websocket.send_text(
-                            json.dumps({
-                                "type": "transcript",
-                                "role": "model",
-                                "text": output_tx.text,
-                            })
+                            json.dumps({"type": "transcript", "role": "model", "text": output_tx.text})
                         )
+                    # Also check server_content paths in case this model variant uses them
                     if getattr(server_content, "turn_complete", False):
-                        log.info("turn_complete received from model")
+                        log.info("turn_complete via server_content (fallback)")
                         await websocket.send_text(json.dumps({"type": "turn_complete"}))
-                    # interrupted = model was cut off by user speech (VAD triggered).
-                    # Treat it the same as turn_complete so the browser resets state.
                     if getattr(server_content, "interrupted", False):
-                        log.info("model response interrupted by user speech")
+                        log.info("interrupted via server_content (fallback)")
                         await websocket.send_text(json.dumps({"type": "turn_complete"}))
 
-                # ── Content events (text, tool calls, or audio via content path) ─
+                # ── Content events (audio / text via event.content path) ─────────
                 content = getattr(event, "content", None)
                 if content:
-                    role = getattr(content, "role", "model")
+                    role  = getattr(content, "role", "model")
                     parts = getattr(content, "parts", []) or []
-                    log.info("Content event: role=%s  parts=%d", role, len(parts))
-                    for i, part in enumerate(parts):
+                    for part in parts:
                         text   = getattr(part, "text", None)
                         inline = getattr(part, "inline_data", None)
-                        fc     = getattr(part, "function_call", None)
-                        fr     = getattr(part, "function_response", None)
-                        log.info("  part[%d] text=%r  inline=%s  fc=%s  fr=%s",
-                                 i,
-                                 (text[:60] + "…") if text and len(text) > 60 else text,
-                                 bool(inline), bool(fc), bool(fr))
                         if text:
                             await websocket.send_text(
                                 json.dumps({"type": "transcript", "role": role, "text": text})
                             )
-                        # Audio can arrive via content.parts in some ADK/model combos
                         if inline and getattr(inline, "data", None):
-                            log.info("  Audio from content path: %d bytes", len(inline.data))
                             await websocket.send_bytes(inline.data)
+
+                # ── Solar mockup side-channel drain ──────────────────────────────
+                # generate_solar_mockup() stores image bytes in solar_mockup._pending_images
+                # keyed by a short UUID, then returns only a tiny dict to the voice model.
+                # This prevents the 2-3 MB base64 blob from entering the 32K context window.
+                # We drain the store after every ADK event so the image reaches the browser
+                # as soon as the tool finishes (model response event arrives right after).
+                for img_info in _pop_mockup_images():
+                    log.info("solar_mockup image ready (id=%s, %d chars) — forwarding to browser",
+                             img_info["image_id"], len(img_info["image_b64"]))
+                    await websocket.send_text(json.dumps({
+                        "type":      "solar_mockup",
+                        "image_b64": img_info["image_b64"],
+                        "mime_type": img_info.get("mime_type", "image/jpeg"),
+                        "message":   "",
+                    }))
+
+            # ── Generator exhausted (session ended cleanly) ───────────────────
+            # Close the WebSocket so the browser reconnects with a fresh session.
+            log.info("run_live generator exhausted — closing WS for fresh session")
+            try:
+                await websocket.close(1000, "Session complete")
+            except Exception:
+                pass
 
         except WebSocketDisconnect:
             log.info("Send loop: browser disconnected")
         except Exception as exc:
-            log.info("Send loop ended: %s", exc)
-            # Gemini Live session died — close the browser WebSocket so the
-            # browser's onclose handler reconnects and gets a fresh session.
+            log.info("Send loop ended with error: %s", exc)
             try:
                 await websocket.close(1011, "Live session ended")
             except Exception:
