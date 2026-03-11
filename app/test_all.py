@@ -118,26 +118,19 @@ except Exception as e:
 # ─────────────────────────────────────────────────────────────────────────────
 section("4 · Model availability check")
 
-ALL_MODELS = (
-    brain.BRAIN_MODELS
-    + brain.PDF_MODELS
-    + brain.IMAGE_MODELS_GEMINI
-    + [brain.IMAGEN_MODEL]
-)
-ALL_MODELS = list(dict.fromkeys(ALL_MODELS))   # deduplicate, preserve order
+# Brain + PDF models go through generate_content(); list them via models.list().
+# IMAGE_MODELS_GEMINI removed — those models require allowlist and are not used.
+# Imagen (IMAGEN_MODEL) uses a separate generate_images() API and does NOT appear
+# in the standard Gemini models.list() registry; show as INFO not FAIL.
+ALL_MODELS = list(dict.fromkeys(brain.BRAIN_MODELS + brain.PDF_MODELS))
 
 try:
     listed = {m.name for m in brain._get_client().models.list()}
-    # Imagen models use a separate generate_images API — they don't appear in
-    # the standard Gemini models.list() but work fine; mark them as INFO not FAIL.
-    imagen_ids = {brain.IMAGEN_MODEL}
     for mid in ALL_MODELS:
         found = any(mid in name for name in listed)
-        if not found and mid in imagen_ids:
-            # Imagen uses generate_images() not generate_content() — separate registry
-            print(f"  [INFO]  model listed: {mid}  (Imagen — separate API, not in Gemini list)")
-        else:
-            record(f"model listed: {mid}", found, "" if found else "not in models.list()")
+        record(f"model listed: {mid}", found, "" if found else "not in models.list()")
+    # Imagen: separate registry — just flag it as INFO
+    print(f"  [INFO]  model listed: {brain.IMAGEN_MODEL}  (Imagen — separate generate_images() API, not in Gemini list)")
 except Exception as e:
     record("models.list()", False, str(e))
 
@@ -194,7 +187,8 @@ except Exception as e:
 # ─────────────────────────────────────────────────────────────────────────────
 section("6 · Image Gen tier — generate_solar_image()")
 
-print(f"  {YELLOW}Tries: {brain.IMAGE_MODELS_GEMINI} then falls back to {brain.IMAGEN_MODEL}{RESET}\n")
+print(f"  {YELLOW}Gemini tiers (global): {brain.GEMINI_IMAGE_MODELS}"
+      f"  Final fallback: {brain.IMAGEN_MODEL} (us-central1){RESET}\n")
 
 try:
     t0      = time.time()
@@ -222,33 +216,49 @@ except Exception as e:
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. solar_mockup tool (wraps image gen)
 # ─────────────────────────────────────────────────────────────────────────────
-section("7 · solar_mockup tool — generate_solar_mockup()")
+section("7 · solar_mockup tool — generate_solar_mockup() + side-channel drain")
 
+# The new side-channel pattern:
+#   generate_solar_mockup() stores image bytes in solar_mockup._pending_images
+#   and returns only {success, image_id, message} — NO image_b64 in return dict.
+#   pop_pending_images() is called by server.py to drain the store to the browser.
 try:
-    from solar_mockup import generate_solar_mockup
-    record("import solar_mockup", True)
+    from solar_mockup import generate_solar_mockup, pop_pending_images
+    record("import solar_mockup + pop_pending_images", True)
 
-    t0     = time.time()
-    result = generate_solar_mockup("123 Maple St, San Jose CA", panel_count=10)
+    t0      = time.time()
+    result  = generate_solar_mockup("123 Maple St, San Jose CA", panel_count=10)
     elapsed = time.time() - t0
 
     has_success = "success" in result
     has_message = bool(result.get("message"))
+    has_no_b64  = "image_b64" not in result   # image must NOT be in return dict (side-channel)
+
     if result.get("success"):
-        has_b64 = bool(result.get("image_b64"))
-        ok = has_success and has_b64 and has_message
+        image_id = result.get("image_id", "")
+        # Drain the side-channel — should contain exactly one image
+        pending = pop_pending_images()
+        has_pending = len(pending) == 1 and bool(pending[0].get("image_b64"))
+        ok = has_success and has_message and has_no_b64 and bool(image_id) and has_pending
         record(
-            "generate_solar_mockup → success=True, image rendered",
+            "generate_solar_mockup → success=True, image in side-channel",
             ok,
-            f"image_b64 len={len(result.get('image_b64',''))}  ({elapsed:.1f}s)",
+            (
+                f"image_id={image_id!r}  "
+                f"side_channel_images={len(pending)}  "
+                f"b64_len={len(pending[0].get('image_b64','')) if pending else 0}  "
+                f"({elapsed:.1f}s)"
+            ),
         )
     else:
-        # success=False is acceptable if ALL image models are unavailable —
-        # the tool returns a graceful message; the voice agent handles it.
+        # success=False is acceptable when all image models are unavailable.
+        # Verify the side-channel is empty (no orphaned entries).
+        leftover = pop_pending_images()
+        ok = has_success and has_message and has_no_b64 and len(leftover) == 0
         record(
-            "generate_solar_mockup → success=False (all image models down — graceful)",
-            True,   # not a crash — this is handled correctly
-            f"message={result.get('message')!r}  ({elapsed:.1f}s)",
+            "generate_solar_mockup → success=False (image models down — graceful)",
+            ok,   # not a crash — handled correctly
+            f"message={result.get('message')!r}  leftover_pending={len(leftover)}  ({elapsed:.1f}s)",
         )
 except Exception as e:
     record("generate_solar_mockup", False, str(e))

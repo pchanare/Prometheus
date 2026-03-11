@@ -51,7 +51,7 @@ def get_solar_data(address: str) -> dict:
             payback_years = cash.get("paybackYears", "N/A")
             break
 
-    return {
+    result = {
         "address": address,
         "max_panels": solar.get("maxArrayPanelsCount"),
         "roof_area_m2": round(solar.get("maxArrayAreaMeters2", 0), 1),
@@ -61,3 +61,17 @@ def get_solar_data(address: str) -> dict:
         "payback_years": payback_years,
         "panel_lifetime_years": solar.get("panelLifetimeYears"),
     }
+
+    try:
+        from session_memory import update as _mem
+        _mem(
+            address=address,
+            max_panels=result["max_panels"],
+            roof_area_m2=result["roof_area_m2"],
+            yearly_sunshine_hours=result["yearly_sunshine_hours"],
+            upfront_cost_usd=upfront_cost,
+        )
+    except Exception:
+        pass
+
+    return result

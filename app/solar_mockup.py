@@ -48,19 +48,35 @@ def pop_pending_images() -> list[dict]:
     return items
 
 
-def generate_solar_mockup(address: str, panel_count: int = 20) -> dict:
+def generate_solar_mockup(
+    address: str,
+    panel_count: int = 20,
+    installation_type: str = "rooftop",
+    image_path: str = "",
+) -> dict:
     """
-    Generate a photorealistic AI image showing solar panels installed on the
-    property at *address*.
+    Generate a photorealistic AI image showing solar panels at the property.
 
-    Use this tool after you have presented the solar financial analysis and the
-    user wants to see what their roof would look like with panels installed.
+    Use this tool after presenting a solar analysis whenever the user wants to
+    visualise what the installation would look like.
 
     Args:
-        address:     Full street address of the property (e.g. "123 Main St, Austin TX").
-        panel_count: Number of solar panels to render.  Default is 20.
-                     Use the recommended panel count from get_solar_data if available,
-                     or the panel count from an uploaded solar quote if one was provided.
+        address:           Full street address (e.g. "123 Main St, Austin TX").
+        panel_count:       Number of solar panels to render. Use the recommended
+                           count from get_solar_data, or from an uploaded quote.
+        installation_type: Visual style of the render. Must be one of:
+                             "rooftop"      — panels on the roof (default)
+                             "canopy"       — backyard solar canopy/pergola
+                             "ground_mount" — panels on ground-level racking
+                           Use "canopy" or "ground_mount" when the user has asked
+                           about those types or when analyze_space_for_solar was used.
+        image_path:        Optional filesystem path to the user's uploaded photo
+                           (the temp path from the capture label, e.g.
+                           C:\\Users\\...\\prometheus_abc123.jpg).
+                           When provided, the AI edits the actual photo to add
+                           solar panels instead of generating a generic house.
+                           Always pass this when the user has shared a photo of
+                           their house, roof, or outdoor space.
 
     Returns:
         A dict with the following keys:
@@ -69,19 +85,38 @@ def generate_solar_mockup(address: str, panel_count: int = 20) -> dict:
                               from the side-channel store (only when success=True).
           message   (str)   — Human-readable status to relay to the user.
     """
-    log.info("generate_solar_mockup: address=%r  panels=%d", address, panel_count)
+    log.info(
+        "generate_solar_mockup: address=%r  panels=%d  type=%s  image_path=%r",
+        address, panel_count, installation_type, image_path or None,
+    )
 
-    image_bytes = generate_solar_image(address, panel_count)
+    # Load the user's photo if a valid path was provided
+    photo_bytes: bytes | None = None
+    if image_path:
+        try:
+            with open(image_path, "rb") as _f:
+                photo_bytes = _f.read()
+            log.info("generate_solar_mockup: loaded user photo (%d bytes) from %s",
+                     len(photo_bytes), image_path)
+        except Exception as exc:
+            log.warning("generate_solar_mockup: could not load image_path %r: %s — using text-only",
+                        image_path, exc)
+
+    image_bytes = generate_solar_image(address, panel_count, installation_type, photo_bytes)
 
     if image_bytes:
         image_id = str(_uuid.uuid4())[:8]
         _pending_images[image_id] = (image_bytes, "image/jpeg")
         log.info("generate_solar_mockup ✓ — %d bytes stored as image_id=%s", len(image_bytes), image_id)
+        type_label = {
+            "canopy":       "solar canopy",
+            "ground_mount": "ground-mount array",
+        }.get((installation_type or "rooftop").lower(), "rooftop installation")
         return {
             "success":  True,
             "image_id": image_id,
             "message": (
-                f"Solar mockup generated for {address} with {panel_count} panels. "
+                f"Solar mockup ({type_label}) generated for {address} with {panel_count} panels. "
                 "The image is now being displayed in the chat for the user to see."
             ),
         }
