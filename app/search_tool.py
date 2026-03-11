@@ -21,9 +21,11 @@ def search_solar_incentives(state: str, system_cost_usd: float) -> dict:
         f"federal solar ITC tax credit 2025",
     ]
     
-    all_results = []
-    
+    snippets = []
+
     for query in queries:
+        if len(snippets) >= 5:
+            break
         response = requests.get(
             "https://www.googleapis.com/customsearch/v1",
             params={
@@ -33,20 +35,19 @@ def search_solar_incentives(state: str, system_cost_usd: float) -> dict:
                 "num": 3,
             },
         )
-        
         if response.ok:
-            data = response.json()
-            items = data.get("items", [])
-            for item in items:
-                all_results.append({
-                    "title": item.get("title"),
-                    "snippet": item.get("snippet"),
-                    "link": item.get("link"),
-                })
-    
+            for item in response.json().get("items", []):
+                snippet = (item.get("snippet") or "").strip()
+                if snippet and len(snippets) < 5:
+                    # Truncate each snippet to 180 chars — enough to identify the incentive
+                    snippets.append(snippet[:180])
+
     return {
-        "state": state,
-        "system_cost_usd": system_cost_usd,
-        "search_results": all_results,
-        "note": "Use these results to identify and calculate all available incentives and revised payback period"
+        "state":            state,
+        "system_cost_usd":  system_cost_usd,
+        "incentive_snippets": snippets,
+        "note": (
+            "Use these snippets to identify available incentives, name them clearly, "
+            "and factor them into the revised payback period calculation."
+        ),
     }

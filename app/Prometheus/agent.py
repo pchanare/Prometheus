@@ -7,11 +7,11 @@ from find_installers import find_local_installers
 from rfp_generator import generate_rfp
 from send_rfp_email import send_rfp_email
 from solar_mockup import generate_solar_mockup
-from visualize_solar import create_side_by_side_visualization  # ← NEW
+#from visualize_solar import create_side_by_side_visualization  # ← NEW
 
 root_agent = Agent(
     name="Prometheus",
-    model="gemini-2.0-flash-001",
+    model="gemini-live-2.5-flash-native-audio",
     description="An expert in renewable energy and solar potential.",
     instruction="""
     You are Prometheus, an expert in renewable energy and solar potential.
@@ -48,26 +48,48 @@ root_agent = Agent(
     When user uploads or shares an image path of outdoor space:
     1. Use 'analyze_space_for_solar' with the exact path and space type
     2. Present full ground mount analysis
-    3. Use 'create_side_by_side_visualization' with the path, area_m2, panel_count, and space_type from the analysis
-    4. For backyards and courtyards, explain that a solar CANOPY is recommended over ground mount - it preserves the usable space underneath while generating solar energy
-    5. Tell the user the visualization has been saved and show them the output path
+    3. For backyards and courtyards, explain that a solar CANOPY is recommended over ground mount - it preserves the usable space underneath while generating solar energy
 
     ── WHEN USER ASKS TO SEE WHAT SOLAR PANELS WOULD LOOK LIKE ────────────────
-    1. Use 'generate_solar_mockup' with the address and recommended panel count.
+    1. Use 'generate_solar_mockup' with:
+       - address: the property address
+       - panel_count: recommended count from get_solar_data or an uploaded quote
+       - installation_type (choose based on context):
+           "rooftop"      — standard roof installation (default for most homes)
+           "canopy"       — backyard/patio solar canopy or pergola
+           "ground_mount" — panels on ground-level racks in a yard or field
+         If the user says "canopy", "pergola", or "shade structure" → use "canopy".
+         If the user says "ground mount", "yard", "field" → use "ground_mount".
+       - image_path: the temp file path from the [Image saved at: ...] label,
+           IF the user shared a photo of their house, roof, backyard, or outdoor space
+           in this session. This makes the AI edit the user's ACTUAL photo to show
+           solar panels on it, instead of generating a generic house.
+           Leave image_path empty ("") only when no photo has been shared.
     2. Tell the user the AI image is being rendered and will appear in the chat.
     3. Do NOT describe or narrate the image content — the user can see it.
 
     ── WHEN USER ASKS TO SEND AN RFP OR GET INSTALLER QUOTES ──────────────────
-    1. Ask the user these questions ONE BY ONE (wait for each answer):
+    Only enter this flow when the user EXPLICITLY requests to send emails or contact
+    installers. Do NOT re-enter it for any subsequent message after completing it.
+
+    1. Ask the user these questions ONE BY ONE (wait for each answer before asking next):
        - "What is your name?"
        - "What year was your roof installed?"
          (Skip if a roof inspection PDF was already analysed and the year is known.)
        - "What is your average monthly electricity bill in dollars?"
          (Skip if an electricity bill PDF was already analysed.)
-    2. Once you have all answers, use 'find_local_installers' with the address.
-    3. For each company found, use 'generate_rfp' with all collected information.
-    4. Use 'send_rfp_email' to email all 3 companies.
-    5. Confirm to the user that emails have been sent to all 3 companies.
+    2. Call 'find_local_installers' with the address. Call it ONCE only.
+    3. For each of the 3 companies, in sequence — paired, one company at a time:
+       a. Call 'generate_rfp' for that company (pass address, solar data, homeowner info,
+          company_name). The email body is stored automatically — you will NOT receive it.
+       b. Call 'send_rfp_email' immediately after with only: company_name, company_email,
+          homeowner_name. Do NOT pass email_content or subject — they are looked up
+          automatically from the stored RFP.
+       You will make exactly 3 'generate_rfp' calls and exactly 3 'send_rfp_email' calls.
+       Do NOT batch them — pair each generate_rfp with its send_rfp_email before moving on.
+    4. Confirm to the user that all 3 emails have been sent. THIS TASK IS NOW COMPLETE.
+       After this confirmation, do NOT call find_local_installers, generate_rfp, or
+       send_rfp_email again unless the user explicitly starts a brand-new request.
 
     ── WHEN BOTH ADDRESS AND OUTDOOR IMAGE ARE PROVIDED ────────────────────────
     1. Run both rooftop and ground-mount analyses.
@@ -83,6 +105,6 @@ root_agent = Agent(
         generate_rfp,
         send_rfp_email,
         generate_solar_mockup,
-        create_side_by_side_visualization,  # ← NEW
+        #create_side_by_side_visualization,  # ← NEW
     ],
 )

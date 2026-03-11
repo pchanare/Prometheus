@@ -1,6 +1,7 @@
 import os
 import base64
 import pickle
+import time
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from email.mime.text import MIMEText
@@ -8,27 +9,60 @@ from email.mime.multipart import MIMEMultipart
 
 TOKEN_FILE = os.path.join(os.path.dirname(__file__), "token.pickle")
 
+# Deduplication guard — prevents the same email being sent twice within a short
+# window even if the model calls send_rfp_email more than once (e.g. due to
+# context replay).  Key: "<company_email>::<subject>", value: unix timestamp.
+_DEDUP_WINDOW_S = 120   # 2-minute window
+_sent_log: dict[str, float] = {}
+
 
 def send_rfp_email(
     company_name: str,
     company_email: str,
-    subject: str,
-    email_content: str,
     homeowner_name: str,
 ) -> dict:
     """
-    Send RFP email to a solar installation company via Gmail.
+    Send the RFP email prepared by generate_rfp to a solar installation company
+    via Gmail.  The email body and subject are retrieved automatically from the
+    server-side store — do NOT pass them here; they are never sent to the model.
+
+    Call generate_rfp for this company BEFORE calling this function.
 
     Args:
-        company_name: Name of the solar company
-        company_email: Email address of the company
-        subject: Email subject line
-        email_content: Full email body content
-        homeowner_name: Name of the homeowner
+        company_name:   Name of the solar company (must match the name passed to
+                        generate_rfp so the stored email can be found).
+        company_email:  Recipient email address.
+        homeowner_name: Name of the homeowner (used in logging / confirmation).
 
     Returns:
-        Dict with send status
+        Dict with send status.
     """
+    # ── Retrieve stored email content ────────────────────────────────────────
+    from rfp_generator import _rfp_store
+    stored = _rfp_store.get(company_name)
+    if not stored:
+        return {
+            "status":       "failed",
+            "company_name": company_name,
+            "error":        f"No RFP found for {company_name!r}. Call generate_rfp first.",
+            "message":      f"Cannot send — no RFP has been generated for {company_name}.",
+        }
+    subject       = stored["subject"]
+    email_content = stored["email_content"]
+
+    # ── Deduplication guard ──────────────────────────────────────────────────
+    dedup_key = f"{company_email}::{subject}"
+    now = time.time()
+    if dedup_key in _sent_log and now - _sent_log[dedup_key] < _DEDUP_WINDOW_S:
+        return {
+            "status": "already_sent",
+            "company_name": company_name,
+            "company_email": company_email,
+            "message": f"Email to {company_name} was already sent moments ago — skipping duplicate.",
+        }
+    _sent_log[dedup_key] = now
+    # ────────────────────────────────────────────────────────────────────────
+
     try:
         sender_email = os.environ.get("SENDER_EMAIL", "me")
 
