@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import uuid
 
 import uvicorn
@@ -200,6 +201,25 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
 
     live_queue = LiveRequestQueue()
 
+    # ── Session memory injection ─────────────────────────────────────────────
+    # Re-inject facts captured in previous sessions / context resets so the
+    # model doesn't ask the user to repeat their address, solar data, etc.
+    try:
+        from session_memory import build_injection as _build_mem
+        _mem_note = _build_mem()
+        if _mem_note:
+            live_queue.send_content(
+                types.Content(
+                    role="user",
+                    parts=[types.Part(text=_mem_note)],
+                )
+            )
+            log.info("session_memory: injected %d chars into session %s",
+                     len(_mem_note), session_id[:8])
+    except Exception as _mem_exc:
+        log.warning("session_memory: injection failed: %s", _mem_exc)
+    # ────────────────────────────────────────────────────────────────────────
+
     # Disable server-side VAD and use explicit ActivityStart/ActivityEnd signals
     # instead of silence bursts.  This gives deterministic turn control and avoids
     # the ~3-4 minute delay that happens when VAD gets confused by interleaved
@@ -223,7 +243,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
             run_config_kwargs["context_window_compression"] = ContextWindowCompressionConfig()
             log.info("Context window compression enabled")
         except ImportError:
-            log.debug("ContextWindowCompressionConfig not available in this ADK build")
+            log.info("ContextWindowCompressionConfig not available in this ADK build — skipping")
 
         run_config = RunConfig(**run_config_kwargs)
 
@@ -280,11 +300,35 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
 
                     elif kind == "capture":
                         # Explicit image turn (camera snapshot OR uploaded file).
-                        # The optional 'label' field lets the browser set context-
-                        # appropriate text so the model knows what kind of image it is.
+                        # Save bytes to a temp file so analyze_space_for_solar can
+                        # read them from disk — the tool expects a filesystem path.
                         img_bytes = base64.b64decode(payload["data"])
-                        label = payload.get("label") or "I just shared this image. Please describe what you see and how it might relate to solar installation."
-                        log.info("Capture received: %d bytes — label=%r", len(img_bytes), label[:60])
+                        tmp_path = os.path.join(
+                            tempfile.gettempdir(),
+                            f"prometheus_{uuid.uuid4().hex[:8]}.jpg",
+                        )
+                        with open(tmp_path, "wb") as _f:
+                            _f.write(img_bytes)
+                        log.info("Capture saved → %s (%d bytes)", tmp_path, len(img_bytes))
+                        try:
+                            from session_memory import update as _mem
+                            _mem(last_image_path=tmp_path)
+                        except Exception:
+                            pass
+
+                        user_label = payload.get("label")
+                        if user_label:
+                            # Append temp path so the model can pass it to analyze_space_for_solar
+                            label = f"{user_label}\n[Image saved at: {tmp_path}]"
+                        else:
+                            label = (
+                                f"I just shared this image (saved at: {tmp_path}). "
+                                "Please describe what you see and how it relates to solar installation. "
+                                f"If it shows an outdoor space (backyard, garden, courtyard, etc.), "
+                                f"call analyze_space_for_solar with image_path=\"{tmp_path}\" "
+                                "and the appropriate space_type."
+                            )
+                        log.info("Capture label: %r", label[:80])
                         live_queue.send_content(
                             types.Content(
                                 role="user",
