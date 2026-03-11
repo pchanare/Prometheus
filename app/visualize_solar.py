@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from PIL import Image, ImageDraw, ImageFont
 import io
+from brain import generate_solar_image
 
 
 def extract_frame_from_video(video_path: str) -> np.ndarray:
@@ -260,6 +261,7 @@ def create_side_by_side_visualization(
     area_m2: float,
     panel_count: int,
     space_type: str,
+    address: str = "",
     output_dir: str = None,
 ) -> dict:
     """
@@ -288,9 +290,23 @@ def create_side_by_side_visualization(
         else:
             original_pil = Image.open(image_path).convert("RGB")
 
-        canopy_image = draw_canopy_on_image(
-            original_pil, area_m2, panel_count, space_type
-        )
+        # Try AI image generation first (same model path used by solar_mockup.py).
+        # If generation fails, fall back to deterministic local canopy rendering.
+        canopy_image = None
+        render_engine = "local_overlay"
+        prompt_location = address.strip() or f"{space_type} residential property"
+        ai_bytes = generate_solar_image(prompt_location, panel_count)
+        if ai_bytes:
+            try:
+                canopy_image = Image.open(io.BytesIO(ai_bytes)).convert("RGB")
+                render_engine = "ai_model"
+            except Exception:
+                canopy_image = None
+
+        if canopy_image is None:
+            canopy_image = draw_canopy_on_image(
+                original_pil, area_m2, panel_count, space_type
+            )
         diagram_pil = draw_solar_diagram(area_m2, panel_count, space_type)
 
         target_height = 600
@@ -342,6 +358,7 @@ def create_side_by_side_visualization(
             "panel_count": panel_count,
             "area_m2": area_m2,
             "canopy_coverage": "auto-scaled to space size",
+            "render_engine": render_engine,
         }
 
     except Exception as e:

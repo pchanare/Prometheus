@@ -1,17 +1,21 @@
 """
 brain.py — model dispatch layer for Prometheus Brain-Voice Split architecture.
 
-Provides three tiers of AI models accessed via the Vertex AI API:
-  - Brain  : gemini-3.1-flash-lite-preview  (fast, smart reasoning)
-  - PDF    : gemini-3.1-pro-preview          (deep document extraction)
-  - Image  : gemini-3.1-flash-image-preview  (solar mockup generation)
+All Gemini 3.1 preview models and Gemini 2.5 image models require the global
+endpoint (location="global").  Regional endpoints (us-central1) return 404 for
+these models.  The regional client is kept only for Imagen 3 (generate_images).
 
-Each tier falls back to gemini-2.5-pro so the hackathon demo never
-breaks when a preview model is behind an allowlist or quota.
+Tier hierarchy:
+  Brain : gemini-3.1-flash-lite-preview (global) → gemini-2.5-pro (global)
+  PDF   : gemini-3.1-pro-preview (global)        → gemini-2.5-pro (global)
+  Image : gemini-3.1-flash-image-preview (global)
+        → gemini-2.5-flash-image (global)
+        → imagen-3.0-generate-001 (us-central1, generate_images, retry on 429)
 """
 
 import logging
 import os
+import time
 
 import google.genai as genai
 from google.genai import types
@@ -22,16 +26,25 @@ log = logging.getLogger("prometheus.brain")
 BRAIN_MODELS = ["gemini-3.1-flash-lite-preview", "gemini-2.5-pro"]
 PDF_MODELS   = ["gemini-3.1-pro-preview",         "gemini-2.5-pro"]
 
-# Image gen: try the native Gemini image-gen model first, then fall back to
-# Imagen 3 (stable GA).  Imagen uses a different API — handled separately in
-# generate_solar_image() rather than through _call().
-IMAGE_MODELS_GEMINI = ["gemini-3.1-flash-image"]
-IMAGEN_MODEL        = "imagen-3.0-generate-001"
+# Image gen — all Gemini models use global endpoint via generate_content().
+# Imagen 3 is the final fallback (regional, generate_images API).
+GEMINI_IMAGE_MODELS = [
+    "gemini-3.1-flash-image-preview",   # primary   (global, generate_content)
+    "gemini-2.5-flash-image",           # secondary (global, generate_content)
+]
+IMAGEN_MODEL           = "imagen-3.0-generate-001"  # final fallback (us-central1)
+_IMAGEN_RETRY_ATTEMPTS = 3                           # retry up to 3× on 429
+_IMAGEN_RETRY_DELAY_S  = 4                           # seconds between retries
 
-# ── Vertex AI client (picks up env vars set in .env) ─────────────────────────
+# ── Vertex AI clients ─────────────────────────────────────────────────────────
 _PROJECT  = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 _LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
 
+# Global endpoint client — used for ALL Gemini models (Brain, PDF, Image).
+# Gemini 3.1 preview and 2.5 image models only exist in the global location.
+_global_client: genai.Client | None = None
+
+# Regional client — kept solely for imagen-3.0-generate-001 (generate_images API).
 _client: genai.Client | None = None
 
 
@@ -46,15 +59,30 @@ def _get_client() -> genai.Client:
     return _client
 
 
+def _get_global_client() -> genai.Client:
+    """Return a client pointed at the Vertex AI global endpoint.
+    Used exclusively for Gemini image-generation models which are only
+    registered in the global location, not regional endpoints.
+    """
+    global _global_client
+    if _global_client is None:
+        _global_client = genai.Client(
+            vertexai=True,
+            project=_PROJECT,
+            location="global",
+        )
+    return _global_client
+
+
 # ── Generic dispatcher ───────────────────────────────────────────────────────
 
 def _call(models: list[str], contents, config=None) -> genai.types.GenerateContentResponse:
     """
-    Try each model in *models* in order.  Any 404 / allowlist / quota / permission
-    error causes a fallback to the next model.  Re-raises the last exception if
-    all models are exhausted.
+    Try each model in *models* in order using the global endpoint.
+    Any 404 / allowlist / quota / permission error causes a fallback to the
+    next model.  Re-raises the last exception if all models are exhausted.
     """
-    client = _get_client()
+    client = _get_global_client()
     last_exc: Exception = RuntimeError("No models provided")
     for model_id in models:
         try:
@@ -164,31 +192,106 @@ def analyze_pdf_bytes(pdf_bytes: bytes) -> str:
         return f'{{"error": "{exc}"}}'
 
 
-def generate_solar_image(address: str, panel_count: int = 20) -> bytes | None:
+def generate_solar_image(
+    address: str,
+    panel_count: int = 20,
+    installation_type: str = "rooftop",
+    image_bytes: bytes | None = None,
+) -> bytes | None:
     """
     Generate a photorealistic solar panel mockup image.
 
-    Strategy (in order):
-      1. gemini-3.1-flash-image-preview  — native Gemini image gen (via generate_content)
-      2. imagen-3.0-generate-001          — Imagen 3 GA (via generate_images)
+    Args:
+        address:           Full street address of the property.
+        panel_count:       Number of panels to render.
+        installation_type: One of "rooftop" (default), "canopy", or "ground_mount".
+        image_bytes:       Optional JPEG bytes of the user's actual photo.
+                           When provided, Gemini models receive the photo as input
+                           and edit it to add solar panels — producing a personalised
+                           result instead of a generic house.  Imagen fallback always
+                           uses a text-only prompt regardless of this parameter.
 
-    Returns raw image bytes or None if all tiers fail.
+    Strategy:
+      Tier 1 — gemini-3.1-flash-image-preview (global, generate_content)
+      Tier 2 — gemini-2.5-flash-image          (global, generate_content)
+      Tier 3 — imagen-3.0-generate-001          (us-central1, generate_images, retry on 429)
+
+    Returns raw image bytes on success, or None if all tiers fail.
     """
-    prompt = (
-        f"Photorealistic aerial view of a residential home at {address} "
-        f"with {panel_count} modern black solar panels neatly installed on the roof. "
-        "4K ultra-detailed quality, bright sunny day, no text overlays, "
-        "cinematic lighting, bird's-eye perspective."
-    )
+    _type = (installation_type or "rooftop").lower().strip()
 
-    client = _get_client()
+    if image_bytes:
+        # Photo-based editing prompts: keep the user's actual image, add panels
+        if _type == "canopy":
+            prompt = (
+                f"Edit this photo to add a solar canopy structure over the outdoor space. "
+                f"Add {panel_count} modern black solar panels forming the roof of an elegant "
+                "open-sided pergola canopy with metal posts. Keep everything else in the photo "
+                "exactly the same — the garden, furniture, background, perspective. "
+                "Photorealistic, 4K quality, bright sunny day, no text overlays."
+            )
+        elif _type == "ground_mount":
+            prompt = (
+                f"Edit this photo to add {panel_count} modern black solar panels mounted on "
+                "ground-level aluminium racking systems in neat rows in the yard or open area. "
+                "Keep everything else in the photo exactly the same — the background, "
+                "surroundings, and perspective. "
+                "Photorealistic, 4K quality, bright sunny day, no text overlays."
+            )
+        else:  # rooftop
+            prompt = (
+                f"Edit this photo to add {panel_count} modern black solar panels neatly "
+                "installed on the roof of this house. Keep the house, garden, surroundings, "
+                "and perspective exactly the same — only add the solar panels to the roof. "
+                "Photorealistic, 4K quality, bright sunny day, no text overlays."
+            )
+    else:
+        # Text-only prompts: generate a generic property from the address
+        if _type == "canopy":
+            prompt = (
+                f"Photorealistic backyard view of a residential property at {address} "
+                f"with a stunning solar canopy structure. "
+                f"{panel_count} modern black solar panels form the roof of an elegant "
+                "open-sided pergola canopy. The space underneath is bright and liveable — "
+                "outdoor furniture, garden, people relaxing. "
+                "4K ultra-detailed quality, bright sunny day, no text overlays, eye-level perspective."
+            )
+        elif _type == "ground_mount":
+            prompt = (
+                f"Photorealistic view of the yard at {address} "
+                f"with {panel_count} modern black solar panels mounted on ground-level "
+                "aluminium racking systems arranged in neat, evenly spaced rows. "
+                "Lush green grass surrounds the array. "
+                "4K ultra-detailed quality, bright sunny day, no text overlays, wide-angle perspective."
+            )
+        else:  # rooftop (default)
+            prompt = (
+                f"Photorealistic aerial view of a residential home at {address} "
+                f"with {panel_count} modern black solar panels neatly installed on the roof. "
+                "4K ultra-detailed quality, bright sunny day, no text overlays, "
+                "cinematic lighting, bird's-eye perspective."
+            )
 
-    # ── Tier 1: Gemini image-gen model (generate_content path) ───────────────
-    for model_id in IMAGE_MODELS_GEMINI:
+    global_client = _get_global_client()
+    config = types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"])
+
+    # Build contents: multimodal (photo + prompt) when image_bytes provided, text-only otherwise
+    if image_bytes:
+        gemini_contents = [
+            types.Part(inline_data=types.Blob(data=image_bytes, mime_type="image/jpeg")),
+            types.Part(text=prompt),
+        ]
+    else:
+        gemini_contents = prompt
+
+    # ── Tiers 1 & 2: Gemini image models (global, generate_content) ──────────
+    for model_id in GEMINI_IMAGE_MODELS:
         try:
-            log.info("generate_solar_image → model=%s (generate_content)", model_id)
-            config = types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"])
-            resp   = client.models.generate_content(model=model_id, contents=prompt, config=config)
+            log.info("generate_solar_image → model=%s (generate_content, global) photo=%s",
+                     model_id, bool(image_bytes))
+            resp = global_client.models.generate_content(
+                model=model_id, contents=gemini_contents, config=config
+            )
             candidates = getattr(resp, "candidates", None) or []
             for candidate in candidates:
                 content = getattr(candidate, "content", None)
@@ -201,30 +304,54 @@ def generate_solar_image(address: str, panel_count: int = 20) -> bytes | None:
             log.warning("generate_solar_image: no image part in %s response", model_id)
         except Exception as exc:
             err_str = str(exc).lower()
-            if any(k in err_str for k in ("404", "not found", "allowlist", "permission", "quota")):
-                log.warning("generate_solar_image: %s unavailable (%s)", model_id, exc)
-                continue
-            log.error("generate_solar_image: unexpected error from %s: %s", model_id, exc)
+            if any(k in err_str for k in ("404", "not found", "allowlist", "permission",
+                                           "quota", "403", "401", "precondition")):
+                log.warning("generate_solar_image: %s unavailable (%s) — trying next", model_id, exc)
+            else:
+                log.error("generate_solar_image: unexpected error from %s: %s — trying next",
+                          model_id, exc)
 
-    # ── Tier 2: Imagen 3 (generate_images path — stable GA) ──────────────────
-    try:
-        log.info("generate_solar_image → model=%s (generate_images)", IMAGEN_MODEL)
-        imagen_resp = client.models.generate_images(
-            model=IMAGEN_MODEL,
-            prompt=prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="16:9",
-            ),
-        )
-        generated = getattr(imagen_resp, "generated_images", None) or []
-        if generated:
-            image_bytes = generated[0].image.image_bytes
-            if image_bytes:
-                log.info("generate_solar_image ✓ via %s — %d bytes", IMAGEN_MODEL, len(image_bytes))
-                return image_bytes
-        log.warning("generate_solar_image: no images in %s response", IMAGEN_MODEL)
-    except Exception as exc:
-        log.error("generate_solar_image: %s failed: %s", IMAGEN_MODEL, exc)
+    # ── Tier 3: imagen-3.0-generate-001 via generate_images (us-central1) ────
+    regional_client = _get_client()
+    for attempt in range(1, _IMAGEN_RETRY_ATTEMPTS + 1):
+        try:
+            log.info(
+                "generate_solar_image → model=%s (generate_images) attempt %d/%d",
+                IMAGEN_MODEL, attempt, _IMAGEN_RETRY_ATTEMPTS,
+            )
+            imagen_resp = regional_client.models.generate_images(
+                model=IMAGEN_MODEL,
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio="16:9",
+                ),
+            )
+            generated = getattr(imagen_resp, "generated_images", None) or []
+            if generated:
+                image_bytes = generated[0].image.image_bytes
+                if image_bytes:
+                    log.info(
+                        "generate_solar_image ✓ via %s — %d bytes (attempt %d)",
+                        IMAGEN_MODEL, len(image_bytes), attempt,
+                    )
+                    return image_bytes
+            log.warning("generate_solar_image: no images in %s response (attempt %d)", IMAGEN_MODEL, attempt)
+
+        except Exception as exc:
+            err_str = str(exc).lower()
+            is_rate_limit = any(k in err_str for k in ("429", "resource_exhausted", "too many requests", "quota"))
+            if is_rate_limit and attempt < _IMAGEN_RETRY_ATTEMPTS:
+                log.warning(
+                    "generate_solar_image: %s rate-limited (429) — retry %d/%d in %ds",
+                    IMAGEN_MODEL, attempt, _IMAGEN_RETRY_ATTEMPTS, _IMAGEN_RETRY_DELAY_S,
+                )
+                time.sleep(_IMAGEN_RETRY_DELAY_S)
+                continue
+            log.error(
+                "generate_solar_image: %s failed (attempt %d): %s",
+                IMAGEN_MODEL, attempt, exc,
+            )
+            break  # non-retryable error or last attempt — give up
 
     return None
