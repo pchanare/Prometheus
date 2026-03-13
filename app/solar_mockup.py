@@ -17,9 +17,41 @@ the model's context window.
 
 import base64
 import logging
+import os
 import uuid as _uuid
 
+import requests
+
 from brain import generate_solar_image
+
+_MAPS_API_KEY = os.environ.get("MAPS_API_KEY", "")
+
+
+def _fetch_street_view(address: str) -> bytes | None:
+    """
+    Fetch a Google Street View image for the given address.
+    Returns JPEG bytes on success, None if unavailable or key missing.
+    """
+    if not _MAPS_API_KEY:
+        return None
+    try:
+        resp = requests.get(
+            "https://maps.googleapis.com/maps/api/streetview",
+            params={
+                "size":              "640x480",
+                "location":          address,
+                "key":               _MAPS_API_KEY,
+                "return_error_code": "true",
+            },
+            timeout=10,
+        )
+        if resp.ok and resp.headers.get("content-type", "").startswith("image/"):
+            log.info("_fetch_street_view: got %d bytes for %r", len(resp.content), address)
+            return resp.content
+        log.warning("_fetch_street_view: no image for %r (status=%s)", address, resp.status_code)
+    except Exception as exc:
+        log.warning("_fetch_street_view failed for %r: %s", address, exc)
+    return None
 
 log = logging.getLogger("prometheus.solar_mockup")
 
@@ -90,17 +122,32 @@ def generate_solar_mockup(
         address, panel_count, installation_type, image_path or None,
     )
 
-    # Load the user's photo if a valid path was provided
+    _type = (installation_type or "rooftop").lower().strip()
     photo_bytes: bytes | None = None
-    if image_path:
-        try:
-            with open(image_path, "rb") as _f:
-                photo_bytes = _f.read()
-            log.info("generate_solar_mockup: loaded user photo (%d bytes) from %s",
-                     len(photo_bytes), image_path)
-        except Exception as exc:
-            log.warning("generate_solar_mockup: could not load image_path %r: %s — using text-only",
-                        image_path, exc)
+
+    if _type == "rooftop":
+        # Rooftop: always use Street View so the mockup shows the actual building,
+        # not a generic house. User-uploaded photos are irrelevant here since Street
+        # View captures the front facade that matters for rooftop installs.
+        photo_bytes = _fetch_street_view(address)
+        if photo_bytes:
+            log.info("generate_solar_mockup: rooftop — using Street View for %r", address)
+        else:
+            log.info("generate_solar_mockup: rooftop — Street View unavailable, falling back to text-only")
+    else:
+        # Canopy / ground mount: Street View shows the street, not the backyard.
+        # Only the user's uploaded photo of their outdoor space is useful here.
+        if image_path:
+            try:
+                with open(image_path, "rb") as _f:
+                    photo_bytes = _f.read()
+                log.info("generate_solar_mockup: %s — loaded user photo (%d bytes) from %s",
+                         _type, len(photo_bytes), image_path)
+            except Exception as exc:
+                log.warning("generate_solar_mockup: could not load image_path %r: %s — using text-only",
+                            image_path, exc)
+        else:
+            log.info("generate_solar_mockup: %s — no user photo provided, using text-only prompt", _type)
 
     image_bytes = generate_solar_image(address, panel_count, installation_type, photo_bytes)
 
