@@ -323,6 +323,33 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                             types.Blob(data=img_bytes, mime_type="image/jpeg")
                         )
 
+                    elif kind == "camera_on":
+                        # First frame captured when the user activates the camera.
+                        # Sent as a full content turn (not just realtime context) so the
+                        # agent immediately responds with a visual description of the space
+                        # and an invitation to upload a photo for detailed solar analysis.
+                        img_bytes = base64.b64decode(payload["data"])
+                        log.info("camera_on: first frame received (%d bytes) — triggering visual commentary", len(img_bytes))
+                        live_queue.send_content(
+                            types.Content(
+                                role="user",
+                                parts=[
+                                    types.Part(
+                                        inline_data=types.Blob(data=img_bytes, mime_type="image/jpeg")
+                                    ),
+                                    types.Part(
+                                        text=(
+                                            "I've just turned on my camera. "
+                                            "Please describe what you see in this space and give a quick "
+                                            "assessment of its solar potential. "
+                                            "Then invite me to take a clear photo and upload it to the chat "
+                                            "for a detailed solar analysis and mockup."
+                                        )
+                                    ),
+                                ],
+                            )
+                        )
+
                     elif kind == "capture":
                         # Explicit image turn (camera snapshot OR uploaded file).
                         # Save bytes to a temp file so analyze_space_for_solar can
