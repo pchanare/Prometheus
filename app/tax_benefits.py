@@ -75,6 +75,12 @@ def get_tax_benefits(state: str, system_cost_usd: float, payback_years: float) -
     """
     state = state.upper().strip()
 
+    try:
+        from status_channel import push_status as _push_status
+        _push_status("💰 Calculating federal and state tax incentives…")
+    except Exception:
+        pass
+
     # Federal ITC — 30% of system cost (stable through 2032)
     federal_itc = system_cost_usd * FEDERAL_ITC_RATE
 

@@ -16,6 +16,12 @@ def analyze_space_for_solar(image_path: str, space_description: str = "outdoor s
         Dict with solar potential analysis of the space
     """
     try:
+        from status_channel import push_status as _push_status
+        _push_status("🔍 Analysing your space for solar potential…")
+    except Exception:
+        pass
+
+    try:
         # Normalize path - handle both forward and back slashes
         image_path = image_path.replace("\\", "/").strip()
 

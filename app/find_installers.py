@@ -18,6 +18,12 @@ def find_local_installers(address: str) -> dict:
         Dict with 3 local solar companies and hardcoded demo email ids
     """
     try:
+        from status_channel import push_status as _push_status
+        _push_status("📋 Finding solar installers near you…")
+    except Exception:
+        pass
+
+    try:
         # Step 1: Geocode the address
         geocode_response = requests.get(
             "https://maps.googleapis.com/maps/api/geocode/json",

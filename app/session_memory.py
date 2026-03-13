@@ -80,8 +80,9 @@ def build_injection() -> str:
     if not _mem:
         return ""
 
-    lines = ["[SESSION MEMORY — confirmed facts from your previous conversation]",
-             "Use all of the following without asking the user to repeat them."]
+    lines = ["── SESSION MEMORY (last known facts — may be overridden by the user) ──────",
+             "If the user provides NEW information in this session (a different address,",
+             "updated bill amount, etc.) always use their new input over these stored values."]
 
     if _mem.get("address"):
         lines.append(f"Property address       : {_mem['address']}")

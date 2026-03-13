@@ -132,6 +132,19 @@
       color: var(--muted);
       transition: color .3s;
     }
+    /* Tool progress detail — shown below the main status label.
+       Lives in its own element so audio chunks can never override it. */
+    #status-detail {
+      font-size: 11px;
+      color: var(--amber);
+      margin-top: 5px;
+      min-height: 15px;
+      opacity: 0;
+      transition: opacity .35s;
+      font-weight: 600;
+      letter-spacing: .4px;
+    }
+    #status-detail.visible { opacity: 1; }
 
     /* Visualiser */
     #viz {
@@ -486,7 +499,10 @@
 
   <!-- Left -->
   <div id="left">
-    <div id="status-row"><div id="status">Ready</div></div>
+    <div id="status-row">
+      <div id="status">Ready</div>
+      <div id="status-detail"></div>
+    </div>
 
     <div id="viz">
       <div class="ring ring-1"></div>
@@ -573,6 +589,7 @@ const sendBtn      = document.getElementById('send-btn');
 const transcript   = document.getElementById('transcript');
 const typing       = document.getElementById('typing');
 const statusEl     = document.getElementById('status');
+const statusDetail = document.getElementById('status-detail');
 const connDot      = document.getElementById('conn-dot');
 const connLabel    = document.getElementById('conn-label');
 const modelBadge   = document.getElementById('model-badge');
@@ -674,6 +691,19 @@ function reconnect() {
 }
 
 function handleMessage(e) {
+  // Reset the processing safety timer on every server message — prevents false
+  // "stuck" timeouts when a tool call takes longer than the initial window.
+  if (processingTimer !== null) {
+    clearTimeout(processingTimer);
+    processingTimer = setTimeout(() => {
+      hideTyping();
+      if (document.body.className !== 'listening') {
+        setStatus('Ready');
+        document.body.className = '';
+      }
+    }, 60000);
+  }
+
   if (e.data instanceof ArrayBuffer) {
     // Audio from model (24 kHz PCM S16LE).
     // Discard if user is already recording — we stopped playback in startRecording()
@@ -688,12 +718,21 @@ function handleMessage(e) {
   if (msg.type === 'mode') {
     modelBadge.textContent = msg.model || msg.label;
   }
+  else if (msg.type === 'thinking') {
+    // Server-driven signal: model received the user's turn and is now computing.
+    // Overrides the JS-side "Thinking…" set in stopRecording() — both use the
+    // same label so there's no flicker, and state is always server-authoritative.
+    setStatus('Thinking…', 'processing');
+    showTyping();
+  }
   else if (msg.type === 'transcript') {
     hideTyping();
     addMessage(msg.role, msg.text);
   }
   else if (msg.type === 'turn_complete') {
     hideTyping();
+    statusDetail.textContent = '';
+    statusDetail.classList.remove('visible');
     nextPlayTime = 0;
     // Don't clobber 'listening' state — if user is already recording a follow-up,
     // let them finish; the state will reset naturally when they stop.
@@ -705,11 +744,20 @@ function handleMessage(e) {
   else if (msg.type === 'solar_mockup') {
     // Server detected a generate_solar_mockup tool response — display the AI image.
     hideTyping();
+    statusDetail.textContent = '';
+    statusDetail.classList.remove('visible');
     addSolarMockup(msg.image_b64, msg.mime_type || 'image/jpeg', msg.message || '');
     if (!isRecording) {
       setStatus('Ready');
       document.body.className = '';
     }
+  }
+  else if (msg.type === 'status') {
+    // Real-time tool progress — shown in the detail line below the main status.
+    // Lives in its own element so audio chunks calling setStatus() can never
+    // clobber it.
+    statusDetail.textContent = msg.text;
+    statusDetail.classList.add('visible');
   }
   else if (msg.type === 'error') {
     addMessage('model', `⚠️ ${msg.text}`);
@@ -817,7 +865,7 @@ async function startRecording() {
 function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
-  setStatus('Processing…', 'processing');
+  setStatus('Thinking…', 'processing');
   showTyping();
 
   const totalChunks = processor?._chunksSent?.() ?? 0;
@@ -955,7 +1003,7 @@ captureBtn.addEventListener('click', () => {
       setTimeout(() => imgPreview.classList.remove('visible'), 4000);
       addMessage('user', '📸 Photo captured');
       showTyping();
-      setStatus('Processing…', 'processing');
+      setStatus('Thinking…', 'processing');
     };
     reader.readAsDataURL(blob);
   }, 'image/jpeg', 0.85);
@@ -998,7 +1046,7 @@ imageFile.addEventListener('change', () => {
         setTimeout(() => imgPreview.classList.remove('visible'), 4000);
         addMessage('user', '🖼️ Image uploaded');
         showTyping();
-        setStatus('Processing…', 'processing');
+        setStatus('Thinking…', 'processing');
       };
       reader.readAsDataURL(blob);
     }, 'image/jpeg', 0.85);
@@ -1087,7 +1135,7 @@ function sendText() {
   addMessage('user', text);
   textInput.value = '';
   showTyping();
-  setStatus('Processing…', 'processing');
+  setStatus('Thinking…', 'processing');
 }
 sendBtn.addEventListener('click', sendText);
 textInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); } });
@@ -1134,7 +1182,7 @@ function showTyping() {
       setStatus('Ready');
       document.body.className = '';
     }
-  }, 45000);
+  }, 60000);
 }
 function hideTyping() {
   typing.classList.remove('visible');

@@ -124,6 +124,58 @@ def call_brain(prompt: str) -> str:
     return (resp.text or "").strip()
 
 
+def _ocr_via_document_ai(pdf_bytes: bytes) -> str | None:
+    """
+    Use Document AI as a pure OCR engine to extract text from *pdf_bytes*.
+
+    Requires DOCUMENT_AI_PROCESSOR_ID (Document OCR processor) and
+    DOCUMENT_AI_LOCATION ("us" or "eu") in the environment.
+
+    Returns the extracted text string, or None if Document AI is not configured
+    or the extraction fails.  The caller passes this text to Gemini for semantic
+    understanding — giving us Document AI OCR quality + Gemini reasoning.
+    """
+    processor_id = os.environ.get("DOCUMENT_AI_PROCESSOR_ID", "").strip()
+    if not processor_id:
+        return None   # not configured — skip silently
+
+    doc_ai_location = os.environ.get("DOCUMENT_AI_LOCATION", "us").strip()
+
+    try:
+        from google.cloud import documentai  # type: ignore
+
+        client = documentai.DocumentProcessorServiceClient(
+            client_options={"api_endpoint": f"{doc_ai_location}-documentai.googleapis.com"}
+        )
+        processor_name = (
+            f"projects/{_PROJECT}/locations/{doc_ai_location}/processors/{processor_id}"
+        )
+        log.info("Document AI OCR: processing %d-byte PDF via %s", len(pdf_bytes), processor_id)
+        result = client.process_document(
+            documentai.ProcessRequest(
+                name=processor_name,
+                raw_document=documentai.RawDocument(
+                    content=pdf_bytes,
+                    mime_type="application/pdf",
+                ),
+            )
+        )
+        text = (result.document.text or "").strip()
+        if len(text) < 50:
+            log.warning("Document AI OCR: extracted text too short (%d chars) — skipping", len(text))
+            return None
+        log.info("Document AI OCR ✓ — %d chars", len(text))
+        return text
+
+    except ImportError:
+        log.warning("Document AI: google-cloud-documentai not installed — "
+                    "run: pip install google-cloud-documentai")
+        return None
+    except Exception as exc:
+        log.warning("Document AI OCR failed (%s) — using Gemini directly on PDF bytes", exc)
+        return None
+
+
 def analyze_pdf_bytes(pdf_bytes: bytes) -> str:
     """
     Send any PDF to the PDF Specialist tier and extract all relevant information.
@@ -143,6 +195,12 @@ def analyze_pdf_bytes(pdf_bytes: bytes) -> str:
         }
     Returns an error JSON string on failure.
     """
+    # ── Tier 1: Document AI OCR → Gemini semantic analysis ─────────────────
+    # Document AI extracts high-quality text (especially from scanned PDFs),
+    # then Gemini reads that text for semantic understanding.
+    # Falls back to sending PDF bytes directly to Gemini if OCR is unavailable.
+    ocr_text = _ocr_via_document_ai(pdf_bytes)
+
     extraction_prompt = (
         "You are a document analysis expert specialising in solar energy, "
         "home construction, and utility documents. "
@@ -169,12 +227,21 @@ def analyze_pdf_bytes(pdf_bytes: bytes) -> str:
         "Return ONLY the JSON object, nothing else."
     )
 
-    contents = [
-        types.Part(text=extraction_prompt),
-        types.Part(
-            inline_data=types.Blob(data=pdf_bytes, mime_type="application/pdf")
-        ),
-    ]
+    if ocr_text:
+        # Document AI extracted clean text — pass it as a text prompt to Gemini
+        log.info("analyze_pdf_bytes: Document AI OCR → Gemini (text mode, %d chars)", len(ocr_text))
+        contents = [
+            types.Part(text=extraction_prompt + f"\n\nDOCUMENT TEXT:\n{ocr_text}"),
+        ]
+    else:
+        # No OCR available — send raw PDF bytes directly to the Gemini PDF specialist
+        log.info("analyze_pdf_bytes: Gemini PDF specialist (direct PDF bytes mode)")
+        contents = [
+            types.Part(text=extraction_prompt),
+            types.Part(
+                inline_data=types.Blob(data=pdf_bytes, mime_type="application/pdf")
+            ),
+        ]
 
     try:
         resp = _call(PDF_MODELS, contents)
