@@ -54,17 +54,17 @@ except Exception as _mockup_err:
     def _pop_mockup_images():
         return []
 
-# Status channel side-channel — tools push progress strings here; the
-# status_loop drains them every 300 ms and forwards {"type":"status"} messages
-# to the browser so the user sees real-time tool progress.
+# Status channel — tools call push_status() / clear_status() directly from
+# their thread via asyncio.run_coroutine_threadsafe, so messages arrive at the
+# browser immediately rather than after a polling interval.
 try:
-    from status_channel import pop_status_messages as _pop_status
+    from status_channel import init as _init_status_channel
     _status_ok = True
 except Exception as _status_err:
     log.warning("status_channel import failed: %s — status messages disabled", _status_err)
     _status_ok = False
-    def _pop_status():
-        return []
+    def _init_status_channel(*a, **kw):
+        pass
 
 # ---------------------------------------------------------------------------
 # Mode registry – add new agents / models here as the project grows
@@ -203,6 +203,11 @@ async def analyze_pdf(file: UploadFile = File(...)):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
     await websocket.accept()
+
+    # Wire the status channel so tools can push messages directly to this socket.
+    # Must be called before the session starts so init(loop, send_fn) is ready
+    # when the first tool runs.
+    _init_status_channel(asyncio.get_running_loop(), websocket.send_text)
 
     if mode not in MODES:
         await websocket.send_text(json.dumps({"type": "error", "text": f"Unknown mode: {mode}"}))
