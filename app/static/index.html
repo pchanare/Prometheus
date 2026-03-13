@@ -368,6 +368,89 @@
     }
     #img-preview.visible { display: block; }
 
+    /* ── Welcome card ── */
+    .welcome-card {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px 20px;
+      animation: fadeUp .3s ease;
+    }
+    .welcome-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -.3px;
+    }
+    .welcome-subtitle {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 3px;
+      letter-spacing: .5px;
+    }
+    .welcome-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 16px 0;
+    }
+    .welcome-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .welcome-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      box-shadow: 0 4px 0 #07070f, 0 6px 16px rgba(0,0,0,0.45);
+      transition: transform .15s, box-shadow .15s;
+    }
+    .welcome-box:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 0 #07070f, 0 10px 20px rgba(0,0,0,0.5);
+    }
+    .welcome-box-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--orange);
+      margin-bottom: 6px;
+    }
+    .welcome-box-desc {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .welcome-footer {
+      margin-top: 16px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .welcome-footer-inputs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .welcome-chip {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 10px;
+    }
+    .welcome-cta {
+      font-size: 12px;
+      color: var(--orange);
+      font-weight: 600;
+      margin-top: 14px;
+    }
+
     /* Solar mockup image inside chat bubbles */
     .mockup-img {
       width: 100%; border-radius: 8px; margin-top: 8px;
@@ -1068,11 +1151,53 @@ clearBtn.addEventListener('click', () => {
 });
 
 // ════════════════════════════════════════════════════════════
+//  Welcome card
+// ════════════════════════════════════════════════════════════
+function showWelcome() {
+  const features = [
+    { title: 'Solar Analysis',      desc: 'Roof area, panel count, sunshine hours & upfront cost estimate for any address.' },
+    { title: 'Tax & Incentives',    desc: 'Federal ITC (30%) plus state-level credits calculated automatically.' },
+    { title: 'AI Mockups',          desc: 'Photorealistic image of solar panels on your property — rooftop, canopy or ground mount.' },
+    { title: 'Space Analysis',      desc: 'Upload a photo of your outdoor space to evaluate ground-mount solar potential.' },
+    { title: 'Document Extraction', desc: 'Upload electricity bills, installer quotes or roof reports — data extracted instantly.' },
+    { title: 'Installer Quotes',    desc: 'Discover local solar companies and send personalised RFP emails automatically.' },
+  ];
+
+  const grid = features.map(f => `
+    <div class="welcome-box">
+      <div class="welcome-box-title">${f.title}</div>
+      <div class="welcome-box-desc">${f.desc}</div>
+    </div>`).join('');
+
+  const card = document.createElement('div');
+  card.className = 'welcome-card';
+  card.innerHTML = `
+    <div class="welcome-title">Prometheus Solar Intelligence</div>
+    <div class="welcome-subtitle">Powered by Gemini Live &middot; Vertex AI</div>
+    <hr class="welcome-divider"/>
+    <div class="welcome-grid">${grid}</div>
+    <hr class="welcome-divider"/>
+    <div class="welcome-footer">
+      <div class="welcome-footer-inputs">
+        <span class="welcome-chip">Voice</span>
+        <span class="welcome-chip">Text</span>
+        <span class="welcome-chip">Camera</span>
+        <span class="welcome-chip">Image</span>
+        <span class="welcome-chip">PDF</span>
+      </div>
+    </div>
+    <div class="welcome-cta">To begin, share a property address.</div>
+  `;
+  transcript.insertBefore(card, typing);
+}
+
+// ════════════════════════════════════════════════════════════
 //  Boot
 // ════════════════════════════════════════════════════════════
 (async () => {
   await loadModes();
   connect();
+  showWelcome();
 })();
 </script>
 </body>
