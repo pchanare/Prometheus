@@ -922,6 +922,29 @@ cameraBtn.addEventListener('click', async () => {
     cameraBtn.classList.add('active');
     cameraOn = true;
 
+    // ── Camera-on trigger ────────────────────────────────────────────────────
+    // Wait 600 ms for the video stream to stabilise, then send the first frame
+    // as a 'camera_on' event. This triggers the agent to immediately describe
+    // the space and invite the user to upload a photo for full analysis.
+    setTimeout(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN || !cameraOn) return;
+      const w = camPreview.videoWidth  || 320;
+      const h = camPreview.videoHeight || 240;
+      frameCanvas.width = w; frameCanvas.height = h;
+      frameCanvas.getContext('2d').drawImage(camPreview, 0, 0, w, h);
+      frameCanvas.toBlob(blob => {
+        if (!blob) return;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          ws.send(JSON.stringify({ type: 'camera_on', data: reader.result.split(',')[1] }));
+          showTyping();
+          setStatus('Analysing space…', 'processing');
+        };
+        reader.readAsDataURL(blob);
+      }, 'image/jpeg', 0.7);
+    }, 1500);
+
     // Stream a frame every 1.5 s as silent visual context so the model can
     // answer voice questions like "what do you see?" without the user clicking Capture.
     // Frames are small (320×240, 50% quality) — just enough for understanding.
