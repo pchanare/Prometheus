@@ -10,6 +10,11 @@ _SOLAR_BASE = "https://solar.googleapis.com/v1/buildingInsights:findClosest"
 
 def get_solar_data(address: str) -> dict:
     """Geocode address and return full solar potential data including cost and payback."""
+    try:
+        from status_channel import push_status as _push_status
+        _push_status("☀️ Fetching solar potential data for your address…")
+    except Exception:
+        pass
 
     # 1. Geocode
     gmaps = googlemaps.Client(key=_MAPS_API_KEY)

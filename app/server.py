@@ -33,7 +33,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from google.genai.types import Modality
 
-from Prometheus.agent import root_agent
+from Prometheus.agent import root_agent, _BASE_INSTRUCTION, _DESCRIPTION, _MODEL, _TOOLS
 
 # Brain import — used for PDF analysis endpoint only
 try:
@@ -52,6 +52,18 @@ except Exception as _mockup_err:
     log.warning("solar_mockup import failed: %s — mockup forwarding disabled", _mockup_err)
     _mockup_ok = False
     def _pop_mockup_images():
+        return []
+
+# Status channel side-channel — tools push progress strings here; the
+# status_loop drains them every 300 ms and forwards {"type":"status"} messages
+# to the browser so the user sees real-time tool progress.
+try:
+    from status_channel import pop_status_messages as _pop_status
+    _status_ok = True
+except Exception as _status_err:
+    log.warning("status_channel import failed: %s — status messages disabled", _status_err)
+    _status_ok = False
+    def _pop_status():
         return []
 
 # ---------------------------------------------------------------------------
@@ -75,24 +87,40 @@ MODES = {
 DEFAULT_MODE = "voice"
 
 # ---------------------------------------------------------------------------
-# ADK runner pool  (one runner per agent instance)
+# ADK runner helpers
 # ---------------------------------------------------------------------------
 APP_NAME = "Prometheus"
 session_service = InMemorySessionService()
 
-_runners: dict[str, Runner] = {}
 
+def make_runner(mode: str, memory_note: str = "") -> Runner:
+    """
+    Create a Runner for *mode*, optionally with *memory_note* appended to the
+    agent's system instruction.
 
-def get_runner(mode: str) -> Runner:
-    """Return (or create) a Runner for the given mode."""
-    if mode not in _runners:
-        cfg = MODES.get(mode, MODES[DEFAULT_MODE])
-        _runners[mode] = Runner(
-            agent=cfg["agent"],
-            app_name=APP_NAME,
-            session_service=session_service,
+    When *memory_note* is non-empty the session memory is injected as part of
+    the system prompt — the model treats it as ground-truth context and never
+    responds to it, unlike injecting it as a user-turn message.
+    """
+    from google.adk.agents import Agent as _Agent
+    cfg = MODES.get(mode, MODES[DEFAULT_MODE])
+
+    if memory_note:
+        agent = _Agent(
+            name="Prometheus",
+            model=_MODEL,
+            description=_DESCRIPTION,
+            instruction=_BASE_INSTRUCTION + "\n\n" + memory_note,
+            tools=_TOOLS,
         )
-    return _runners[mode]
+    else:
+        agent = cfg["agent"]
+
+    return Runner(
+        agent=agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +210,28 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
         return
 
     mode_cfg = MODES[mode]
-    runner = get_runner(mode)
     modalities = mode_cfg["response_modalities"]
 
     user_id = "user"
     session_id = str(uuid.uuid4())
     log.info("New session %s  mode=%s", session_id[:8], mode)
+
+    # ── Session memory → system instruction ─────────────────────────────────
+    # Append stored facts to the agent's system instruction so the model
+    # treats them as ground-truth context — no user-turn injection, no
+    # response triggered.
+    _mem_note = ""
+    try:
+        from session_memory import build_injection as _build_mem
+        _mem_note = _build_mem()
+        if _mem_note:
+            log.info("session_memory: appending %d chars to system instruction for session %s",
+                     len(_mem_note), session_id[:8])
+    except Exception as _mem_exc:
+        log.warning("session_memory: build_injection failed: %s", _mem_exc)
+
+    runner = make_runner(mode, _mem_note)
+    # ────────────────────────────────────────────────────────────────────────
 
     # Create ADK session (handle sync / async ADK versions)
     try:
@@ -200,25 +244,6 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
         )
 
     live_queue = LiveRequestQueue()
-
-    # ── Session memory injection ─────────────────────────────────────────────
-    # Re-inject facts captured in previous sessions / context resets so the
-    # model doesn't ask the user to repeat their address, solar data, etc.
-    try:
-        from session_memory import build_injection as _build_mem
-        _mem_note = _build_mem()
-        if _mem_note:
-            live_queue.send_content(
-                types.Content(
-                    role="user",
-                    parts=[types.Part(text=_mem_note)],
-                )
-            )
-            log.info("session_memory: injected %d chars into session %s",
-                     len(_mem_note), session_id[:8])
-    except Exception as _mem_exc:
-        log.warning("session_memory: injection failed: %s", _mem_exc)
-    # ────────────────────────────────────────────────────────────────────────
 
     # Disable server-side VAD and use explicit ActivityStart/ActivityEnd signals
     # instead of silence bursts.  This gives deterministic turn control and avoids
@@ -391,6 +416,13 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         # tells the model the user's turn is over and to respond.
                         log.info("end_of_turn received — audio chunks so far: %d — sending activity_end", audio_chunks)
                         live_queue.send_activity_end()
+                        # Tell the browser the model is now thinking — this lets
+                        # the UI show a server-driven "Thinking…" state rather than
+                        # relying on the JS-side "Processing…" hardcode.
+                        try:
+                            await websocket.send_text(json.dumps({"type": "thinking"}))
+                        except Exception:
+                            pass
 
         except (WebSocketDisconnect, Exception) as exc:
             log.info("Receive loop ended: %s", exc)
@@ -417,19 +449,9 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                          bool(actions and getattr(actions, "turn_complete", False)),
                          bool(actions and getattr(actions, "skip_summarization", False)))
 
-                # ── turn_complete / interrupted — PRIMARY path (event.actions) ──
-                # With gemini-live-*-native-audio models, server_content is always
-                # None; turn_complete arrives on event.actions.turn_complete instead.
-                if actions:
-                    if getattr(actions, "turn_complete", False):
-                        log.info("turn_complete via event.actions")
-                        await websocket.send_text(json.dumps({"type": "turn_complete"}))
-                    # interrupted fires when the user speaks over the model
-                    if getattr(actions, "interrupted", False):
-                        log.info("interrupted via event.actions")
-                        await websocket.send_text(json.dumps({"type": "turn_complete"}))
-
                 # ── Audio / text via server_content (fallback for other models) ─
+                # IMPORTANT: audio bytes must be sent BEFORE turn_complete so the
+                # browser doesn't reset to "Ready" while audio is still queued.
                 server_content = getattr(event, "server_content", None)
                 if server_content:
                     model_turn = getattr(server_content, "model_turn", None)
@@ -447,7 +469,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         await websocket.send_text(
                             json.dumps({"type": "transcript", "role": "model", "text": output_tx.text})
                         )
-                    # Also check server_content paths in case this model variant uses them
+                    # server_content turn_complete / interrupted (non-native-audio models)
                     if getattr(server_content, "turn_complete", False):
                         log.info("turn_complete via server_content (fallback)")
                         await websocket.send_text(json.dumps({"type": "turn_complete"}))
@@ -486,6 +508,21 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         "message":   "",
                     }))
 
+                # ── turn_complete / interrupted — sent LAST so all audio bytes
+                # for this event reach the browser before the state resets.
+                # With gemini-live-*-native-audio the final audio chunk and
+                # turn_complete often arrive in the same ADK event; sending
+                # turn_complete first caused the browser to flash "Ready" while
+                # audio was still playing, then re-enter "Speaking…".
+                if actions:
+                    if getattr(actions, "turn_complete", False):
+                        log.info("turn_complete via event.actions")
+                        await websocket.send_text(json.dumps({"type": "turn_complete"}))
+                    # interrupted fires when the user speaks over the model
+                    if getattr(actions, "interrupted", False):
+                        log.info("interrupted via event.actions")
+                        await websocket.send_text(json.dumps({"type": "turn_complete"}))
+
             # ── Generator exhausted (session ended cleanly) ───────────────────
             # Close the WebSocket so the browser reconnects with a fresh session.
             log.info("run_live generator exhausted — closing WS for fresh session")
@@ -503,7 +540,30 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
             except Exception:
                 pass
 
-    await asyncio.gather(receive_loop(), send_loop())
+    # -----------------------------------------------------------------------
+    # Status loop: drain tool progress messages → browser every 300 ms
+    # -----------------------------------------------------------------------
+    async def status_loop():
+        """Forward tool status strings to the browser as {"type":"status"} messages."""
+        try:
+            while True:
+                await asyncio.sleep(0.3)
+                for text in _pop_status():
+                    try:
+                        await websocket.send_text(
+                            json.dumps({"type": "status", "text": text})
+                        )
+                    except Exception:
+                        return   # WS closed — stop quietly
+        except asyncio.CancelledError:
+            pass
+
+    status_task = asyncio.ensure_future(status_loop())
+    try:
+        await asyncio.gather(receive_loop(), send_loop())
+    finally:
+        status_task.cancel()
+        await asyncio.gather(status_task, return_exceptions=True)
 
 
 # ---------------------------------------------------------------------------

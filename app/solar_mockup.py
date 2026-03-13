@@ -21,39 +21,68 @@ import os
 import uuid as _uuid
 
 import requests
+from dotenv import load_dotenv
 
 from brain import generate_solar_image
 
-_MAPS_API_KEY = os.environ.get("MAPS_API_KEY", "")
+load_dotenv(override=True)
+log = logging.getLogger("prometheus.solar_mockup")
+
+_MAPS_API_KEY  = os.environ.get("MAPS_API_KEY", "")
+_SV_STATIC_URL = "https://maps.googleapis.com/maps/api/streetview"
+_SV_META_URL   = "https://maps.googleapis.com/maps/api/streetview/metadata"
 
 
 def _fetch_street_view(address: str) -> bytes | None:
     """
-    Fetch a Google Street View image for the given address.
-    Returns JPEG bytes on success, None if unavailable or key missing.
+    Fetch a Street View photo of the property at *address*.
+
+    Flow:
+      1. Hit the metadata endpoint to confirm imagery exists (avoids downloading
+         the generic grey "no imagery" placeholder image).
+      2. If status is OK, download the 640×640 JPEG.
+
+    Returns raw JPEG bytes, or None if no imagery is available or any error occurs.
     """
     if not _MAPS_API_KEY:
+        log.warning("_fetch_street_view: MAPS_API_KEY not set — skipping")
         return None
     try:
+        # Step 1 — check availability
+        meta = requests.get(
+            _SV_META_URL,
+            params={"location": address, "key": _MAPS_API_KEY},
+            timeout=5,
+        ).json()
+        status = meta.get("status", "UNKNOWN")
+        if status != "OK":
+            log.info("Street View: no imagery for %r (status=%s)", address, status)
+            return None
+
+        # Step 2 — download the image
         resp = requests.get(
-            "https://maps.googleapis.com/maps/api/streetview",
+            _SV_STATIC_URL,
             params={
-                "size":              "640x480",
-                "location":          address,
-                "key":               _MAPS_API_KEY,
-                "return_error_code": "true",
+                "size":     "640x640",
+                "location": address,
+                "fov":      90,        # normal field-of-view
+                "pitch":    0,         # level horizon
+                "key":      _MAPS_API_KEY,
             },
             timeout=10,
         )
-        if resp.ok and resp.headers.get("content-type", "").startswith("image/"):
-            log.info("_fetch_street_view: got %d bytes for %r", len(resp.content), address)
+        if resp.ok and len(resp.content) > 10_000:   # real photos are >>10 KB
+            log.info("Street View ✓ — fetched %d bytes for %r", len(resp.content), address)
             return resp.content
-        log.warning("_fetch_street_view: no image for %r (status=%s)", address, resp.status_code)
-    except Exception as exc:
-        log.warning("_fetch_street_view failed for %r: %s", address, exc)
-    return None
 
-log = logging.getLogger("prometheus.solar_mockup")
+        log.warning("Street View: response too small (%d bytes) — likely placeholder",
+                    len(resp.content))
+        return None
+
+    except Exception as exc:
+        log.warning("Street View fetch failed for %r: %s", address, exc)
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Side-channel image store
@@ -124,13 +153,20 @@ def generate_solar_mockup(
 
     _type = (installation_type or "rooftop").lower().strip()
     photo_bytes: bytes | None = None
+    photo_source = "none"
 
     if _type == "rooftop":
-        # Rooftop: always use Street View so the mockup shows the actual building,
-        # not a generic house. User-uploaded photos are irrelevant here since Street
-        # View captures the front facade that matters for rooftop installs.
+        # Rooftop: always use Street View so the mockup shows the actual building.
+        # Street View captures the front facade that matters for rooftop installs;
+        # user-uploaded photos are not useful here.
+        try:
+            from status_channel import push_status as _push_status
+            _push_status("🗺️ Fetching your property photo…")
+        except Exception:
+            pass
         photo_bytes = _fetch_street_view(address)
         if photo_bytes:
+            photo_source = "street_view"
             log.info("generate_solar_mockup: rooftop — using Street View for %r", address)
         else:
             log.info("generate_solar_mockup: rooftop — Street View unavailable, falling back to text-only")
@@ -141,6 +177,7 @@ def generate_solar_mockup(
             try:
                 with open(image_path, "rb") as _f:
                     photo_bytes = _f.read()
+                photo_source = "user_upload"
                 log.info("generate_solar_mockup: %s — loaded user photo (%d bytes) from %s",
                          _type, len(photo_bytes), image_path)
             except Exception as exc:
@@ -149,6 +186,12 @@ def generate_solar_mockup(
         else:
             log.info("generate_solar_mockup: %s — no user photo provided, using text-only prompt", _type)
 
+    log.info("generate_solar_mockup: photo_source=%s", photo_source)
+    try:
+        from status_channel import push_status as _push_status
+        _push_status("🎨 Rendering AI solar panel mockup…")
+    except Exception:
+        pass
     image_bytes = generate_solar_image(address, panel_count, installation_type, photo_bytes)
 
     if image_bytes:

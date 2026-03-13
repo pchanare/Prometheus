@@ -37,6 +37,12 @@ def send_rfp_email(
     Returns:
         Dict with send status.
     """
+    try:
+        from status_channel import push_status as _push_status
+        _push_status(f"📧 Sending email to {company_name}…")
+    except Exception:
+        pass
+
     # ── Retrieve stored email content ────────────────────────────────────────
     from rfp_generator import _rfp_store
     stored = _rfp_store.get(company_name)
