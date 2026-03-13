@@ -1,32 +1,54 @@
 """
-status_channel.py — thread-safe side-channel for real-time tool status messages.
+status_channel.py — direct WebSocket status sender for real-time tool progress.
 
-PATTERN (mirrors solar_mockup._pending_images):
-  Tools call push_status(text) from the thread-pool executor.
-  server.py's status_loop drains pop_status_messages() every 300 ms and sends
-  { type: "status", text: "..." } WebSocket messages to the browser.
+HOW IT WORKS
+─────────────────────────────────────────────────────────────────────────────
+Tools call push_status(text) or clear_status() from the thread-pool executor.
 
-Thread safety:
-  collections.deque.append() and popleft() are GIL-protected in CPython,
-  making them safe to call from multiple threads without an explicit lock.
+Instead of a 300 ms polling loop, messages are scheduled on the event loop
+immediately via asyncio.run_coroutine_threadsafe — so they arrive at the
+browser at the exact moment the tool reaches that line, not after a poll delay.
+
+Call init(loop, send_fn) once per WebSocket session from server.py.
 """
 
-import collections
+import asyncio
+import json
+import logging
 
-_queue: collections.deque = collections.deque()
+log = logging.getLogger("prometheus.status_channel")
+
+_loop: asyncio.AbstractEventLoop | None = None
+_send_fn = None   # websocket.send_text — the coroutine function
+
+
+def init(loop: asyncio.AbstractEventLoop, send_fn) -> None:
+    """Register the running event loop and websocket send function. Called once per session."""
+    global _loop, _send_fn
+    _loop = loop
+    _send_fn = send_fn
 
 
 def push_status(text: str) -> None:
-    """Push a status string from a tool (runs in thread-pool executor)."""
-    _queue.append(text)
+    """
+    Show *text* in the browser's status-detail element immediately.
+    Safe to call from any thread (tool pool or event loop thread).
+    """
+    if _loop is None or _send_fn is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(
+            _send_fn(json.dumps({"type": "status", "text": text})),
+            _loop,
+        )
+    except Exception as exc:
+        log.debug("push_status: %s", exc)
 
 
-def pop_status_messages() -> list:
-    """Drain all pending status messages. Called from the async status_loop."""
-    msgs = []
-    while True:
-        try:
-            msgs.append(_queue.popleft())
-        except IndexError:
-            break
-    return msgs
+def clear_status() -> None:
+    """
+    Hide the status-detail element in the browser.
+    Call this immediately after a tool operation completes.
+    Safe to call from any thread.
+    """
+    push_status("")
