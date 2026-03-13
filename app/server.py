@@ -54,17 +54,49 @@ except Exception as _mockup_err:
     def _pop_mockup_images():
         return []
 
-# Status channel — tools call push_status() / clear_status() directly from
-# their thread via asyncio.run_coroutine_threadsafe, so messages arrive at the
-# browser immediately rather than after a polling interval.
+# Status channel — async before/after tool callbacks send status messages
+# to the browser via WebSocket.  Because the callbacks are async they execute
+# BEFORE the sync tool blocks the event loop, guaranteeing the browser sees
+# the status while the tool is actually working.
 try:
-    from status_channel import init as _init_status_channel
+    from status_channel import (
+        init as _init_status_channel,
+        async_push_status as _async_push_status,
+        async_clear_status as _async_clear_status,
+    )
     _status_ok = True
 except Exception as _status_err:
     log.warning("status_channel import failed: %s — status messages disabled", _status_err)
     _status_ok = False
     def _init_status_channel(*a, **kw):
         pass
+
+# Tool name → status message shown while the tool is running
+_TOOL_STATUS = {
+    "get_solar_data":           "☀️ Fetching solar potential data for your address…",
+    "find_local_installers":    "📋 Finding solar installers near you…",
+    "generate_solar_mockup":    "🎨 Rendering AI solar panel mockup…",
+    "analyze_space_for_solar":  "🔍 Analysing your space for solar potential…",
+    "generate_rfp":             "✍️ Writing RFP…",
+    "send_rfp_email":           "📧 Sending email…",
+    "get_tax_benefits":         "💰 Calculating federal and state tax incentives…",
+    "search_solar_incentives":  "🔍 Searching for local solar incentives and rebates…",
+    "web_search":               "🔍 Searching the web…",
+}
+
+
+async def _before_tool_cb(tool, args, tool_context):
+    """ADK before_tool_callback — show status in browser BEFORE the sync tool runs."""
+    tool_name = getattr(tool, "name", "") or getattr(tool, "__name__", "")
+    msg = _TOOL_STATUS.get(tool_name, f"⏳ {tool_name}…")
+    await _async_push_status(msg)
+    return None   # None = proceed with normal tool execution
+
+
+async def _after_tool_cb(tool, args, tool_context, result):
+    """ADK after_tool_callback — clear status AFTER the sync tool finishes."""
+    await _async_clear_status()
+    return None   # None = don't modify the tool result
 
 # ---------------------------------------------------------------------------
 # Mode registry – add new agents / models here as the project grows
@@ -105,16 +137,24 @@ def make_runner(mode: str, memory_note: str = "") -> Runner:
     from google.adk.agents import Agent as _Agent
     cfg = MODES.get(mode, MODES[DEFAULT_MODE])
 
+    instruction = _BASE_INSTRUCTION
     if memory_note:
-        agent = _Agent(
-            name="Prometheus",
-            model=_MODEL,
-            description=_DESCRIPTION,
-            instruction=_BASE_INSTRUCTION + "\n\n" + memory_note,
-            tools=_TOOLS,
-        )
-    else:
-        agent = cfg["agent"]
+        instruction = _BASE_INSTRUCTION + "\n\n" + memory_note
+
+    # Always create a fresh Agent so we can attach the before/after tool
+    # callbacks that send real-time status messages to the browser.
+    agent_kwargs = dict(
+        name="Prometheus",
+        model=_MODEL,
+        description=_DESCRIPTION,
+        instruction=instruction,
+        tools=_TOOLS,
+    )
+    if _status_ok:
+        agent_kwargs["before_tool_callback"] = _before_tool_cb
+        agent_kwargs["after_tool_callback"] = _after_tool_cb
+
+    agent = _Agent(**agent_kwargs)
 
     return Runner(
         agent=agent,
@@ -572,30 +612,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
             except Exception:
                 pass
 
-    # -----------------------------------------------------------------------
-    # Status loop: drain tool progress messages → browser every 300 ms
-    # -----------------------------------------------------------------------
-    async def status_loop():
-        """Forward tool status strings to the browser as {"type":"status"} messages."""
-        try:
-            while True:
-                await asyncio.sleep(0.3)
-                for text in _pop_status():
-                    try:
-                        await websocket.send_text(
-                            json.dumps({"type": "status", "text": text})
-                        )
-                    except Exception:
-                        return   # WS closed — stop quietly
-        except asyncio.CancelledError:
-            pass
-
-    status_task = asyncio.ensure_future(status_loop())
-    try:
-        await asyncio.gather(receive_loop(), send_loop())
-    finally:
-        status_task.cancel()
-        await asyncio.gather(status_task, return_exceptions=True)
+    await asyncio.gather(receive_loop(), send_loop())
 
 
 # ---------------------------------------------------------------------------
