@@ -1,7 +1,7 @@
 from google.adk.agents import Agent
 from solar_api import get_solar_data
 from tax_benefits import get_tax_benefits
-from search_tool import search_solar_incentives
+from search_tool import search_solar_incentives, web_search
 from image_analysis import analyze_space_for_solar
 from find_installers import find_local_installers
 from rfp_generator import generate_rfp
@@ -19,6 +19,7 @@ _TOOLS = [
     get_solar_data,
     get_tax_benefits,
     search_solar_incentives,
+    web_search,
     analyze_space_for_solar,
     find_local_installers,
     generate_rfp,
@@ -95,7 +96,10 @@ _BASE_INSTRUCTION = """
     2. Extract the state from the address.
     3. Use 'get_tax_benefits' with state, cost, and payback years.
     4. Use 'search_solar_incentives' for real-time local incentives.
-    5. Present the complete financial analysis to the user:
+    5. Use 'web_search' to find the current residential electricity rate ($/kWh)
+       for the user's city/state if the user has not provided their electricity
+       bill. Use this rate in all subsequent savings and payback calculations.
+    6. Present the complete financial analysis to the user:
        - Yearly sunshine hours
        - Recommended number of panels and roof area
        - Original upfront cost
@@ -159,10 +163,76 @@ _BASE_INSTRUCTION = """
        After this confirmation, do NOT call find_local_installers, generate_rfp, or
        send_rfp_email again unless the user explicitly starts a brand-new request.
 
-    ── WHEN BOTH ADDRESS AND OUTDOOR IMAGE ARE PROVIDED ────────────────────────
-    1. Run both rooftop and ground-mount analyses.
-    2. Give a consolidated report covering both options.
-    3. Include ground-mount analysis in the RFP if the user requests quotes.
+    ── COMBINED ROOFTOP + CANOPY/GROUND MOUNT FINANCIAL CALCULATION ───────────
+    When the user has BOTH rooftop data (from get_solar_data) AND a canopy or
+    ground-mount estimate (from analyze_space_for_solar), and asks for combined
+    savings, payback, or a consolidated report, you MUST perform the calculation
+    step by step.  Show your work — do NOT guess or round prematurely.
+
+    STEP 1 — Gather the numbers you already have:
+      A. ROOFTOP (from get_solar_data):
+         • Panel count (e.g. 47 panels)
+         • Panel wattage (e.g. 400 W each)
+         • Rooftop capacity = panels × wattage (e.g. 47 × 400 = 18,800 W = 18.8 kW)
+         • Yearly sunshine hours (e.g. 1,537 h)
+         • Estimated annual production = capacity × sunshine hours × 0.80 performance ratio
+           e.g. 18.8 kW × 1,537 h × 0.80 = 23,116 kWh/year
+         • Upfront cost from Solar API (e.g. $35,694)
+         • Payback years from Solar API (e.g. 8.5 years)
+
+      B. CANOPY / GROUND MOUNT (from analyze_space_for_solar):
+         • Panel count from the spatial analysis (e.g. 12 panels)
+         • Canopy capacity = panels × same wattage (e.g. 12 × 400 = 4,800 W = 4.8 kW)
+         • Estimated annual production = capacity × sunshine hours × 0.80
+           e.g. 4.8 kW × 1,537 h × 0.80 = 5,902 kWh/year
+         • Canopy cost estimate = panels × $1,000 per panel (industry average for
+           canopy/ground-mount including racking, wiring, and labor)
+           e.g. 12 × $1,000 = $12,000
+
+    STEP 2 — Combine:
+      • Total panels        = rooftop panels + canopy panels
+      • Total capacity (kW) = rooftop kW + canopy kW
+      • Total annual production (kWh) = rooftop kWh + canopy kWh
+      • Total system cost   = rooftop cost + canopy cost
+
+    STEP 3 — Apply incentives to the COMBINED total cost:
+      • Federal ITC (30%)   = total system cost × 0.30
+      • State incentives    = use get_tax_benefits with the TOTAL combined cost
+        (call the tool again if it was previously called with only the rooftop cost)
+      • Total incentives    = federal ITC + state credit + any rebate
+      • Revised cost        = total system cost − total incentives
+
+    STEP 4 — Calculate combined payback:
+      • Electricity rate:
+        - If the user has shared their monthly bill: rate = bill ÷ monthly kWh
+        - Otherwise: use web_search to look up the current residential electricity
+          rate for the user's city/state (e.g. "average residential electricity
+          rate per kWh Ann Arbor Michigan 2025"). Extract the $/kWh figure from
+          the search results.
+        - Fallback only if search returns nothing: use $0.16/kWh national average.
+      • Annual savings ($)  = total annual production × electricity rate
+      • Payback years       = revised cost ÷ annual savings
+
+    STEP 5 — Present clearly:
+      Show a side-by-side comparison first (rooftop alone vs combined), then the
+      consolidated numbers:
+        "Here's your combined solar system estimate:
+         • Rooftop: [X] panels ([Y] kW) — [Z] kWh/year — $[cost]
+         • Canopy:  [X] panels ([Y] kW) — [Z] kWh/year — $[cost]
+         • Combined: [total panels] panels ([total kW] kW) — [total kWh] kWh/year
+         • Total system cost: $[total]
+         • Federal ITC (30%): −$[itc]
+         • State incentives:  −$[state]
+         • Revised cost:      $[revised]
+         • Estimated annual savings: $[savings]/year
+         • Payback period: [X.X] years"
+
+    IMPORTANT:
+      • Always use the SAME panel wattage and sunshine hours for both systems.
+      • Always apply ITC to the COMBINED cost, not separately.
+      • If the user's electricity bill is known, use the actual rate — not a guess.
+      • Show each arithmetic step so the user can verify the numbers.
+      • Include canopy/ground-mount analysis in the RFP if the user requests quotes.
 
     ── VERBAL PRE-ANNOUNCEMENTS BEFORE SLOW OPERATIONS ────────────────────────
     Say these out loud BEFORE calling the corresponding tool(s). The model

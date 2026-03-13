@@ -1,5 +1,8 @@
+import logging
 import os
 import requests
+
+log = logging.getLogger("prometheus.search_tool")
 
 _SEARCH_API_KEY = os.environ.get("GOOGLE_SEARCH_API_KEY", "")
 _SEARCH_ENGINE_ID = os.environ.get("GOOGLE_SEARCH_ENGINE_ID", "")
@@ -55,5 +58,65 @@ def search_solar_incentives(state: str, system_cost_usd: float) -> dict:
         "note": (
             "Use these snippets to identify available incentives, name them clearly, "
             "and factor them into the revised payback period calculation."
+        ),
+    }
+
+
+def web_search(query: str) -> dict:
+    """
+    Search the web using Google Custom Search and return relevant snippets.
+
+    Use this tool to look up any real-time information needed for solar
+    analysis, such as:
+      - Current residential electricity rates for a city or state
+        e.g. query="average residential electricity rate Ann Arbor Michigan 2025 per kWh"
+      - Local utility company net metering policies
+      - Current solar panel prices or installation costs
+      - Any other factual data needed to complete a calculation
+
+    Args:
+        query: The search query string. Be specific — include the city/state
+               and year for best results.
+
+    Returns:
+        Dict with up to 5 search result snippets and their source URLs.
+    """
+    log.info("web_search: %r", query)
+
+    snippets = []
+    try:
+        response = requests.get(
+            "https://www.googleapis.com/customsearch/v1",
+            params={
+                "key": _SEARCH_API_KEY,
+                "cx": _SEARCH_ENGINE_ID,
+                "q": query,
+                "num": 5,
+            },
+            timeout=10,
+        )
+        if response.ok:
+            for item in response.json().get("items", []):
+                title   = (item.get("title") or "").strip()
+                snippet = (item.get("snippet") or "").strip()
+                link    = (item.get("link") or "").strip()
+                if snippet:
+                    snippets.append({
+                        "title":   title[:120],
+                        "snippet": snippet[:250],
+                        "url":     link,
+                    })
+        else:
+            log.warning("web_search HTTP %s: %s", response.status_code, response.text[:200])
+    except Exception as exc:
+        log.error("web_search failed: %s", exc)
+
+    return {
+        "query":   query,
+        "results": snippets,
+        "note": (
+            "Extract the specific data point you need (e.g. $/kWh rate) from "
+            "these snippets. If the snippets don't contain a clear answer, use "
+            "the national average of $0.16/kWh as a fallback."
         ),
     }
