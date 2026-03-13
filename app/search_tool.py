@@ -15,6 +15,12 @@ def search_solar_incentives(state: str, system_cost_usd: float) -> dict:
     Returns:
         Dict with search results about incentives and estimated savings
     """
+    try:
+        from status_channel import push_status as _push_status
+        _push_status("🔍 Searching for local solar incentives and rebates…")
+    except Exception:
+        pass
+
     queries = [
         f"{state} solar tax incentives rebates 2025",
         f"{state} utility solar rebate programs 2025",

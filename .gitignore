@@ -27,6 +27,9 @@ build/
 .adk/
 *.db
 
+# Session memory (local user data — not for version control)
+prometheus_memory.json
+
 # OS / IDE
 .DS_Store
 Thumbs.db

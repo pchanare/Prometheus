@@ -68,6 +68,12 @@ def generate_rfp(
         if ground_mount_analysis != "Not provided" else ""
     )
 
+    try:
+        from status_channel import push_status as _push_status
+        _push_status(f"✍️ Writing RFP for {company_name}…")
+    except Exception:
+        pass
+
     # ── Ask Brain to write a personalised version ───────────────────────────
     email_content = _brain_rfp(
         address=address,
