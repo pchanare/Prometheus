@@ -24,6 +24,16 @@ load_dotenv(override=True)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("prometheus")
 
+# Suppress the noisy "1000 None" clean-close error that the ADK live runner
+# logs as ERROR whenever a browser disconnects normally (WebSocket code 1000
+# is a clean close, not an actual error — ADK just doesn't distinguish).
+class _SuppressCleanClose(logging.Filter):
+    def filter(self, record):
+        return "1000 None" not in str(record.getMessage())
+
+logging.getLogger("google.adk.flows.llm_flows.base_llm_flow").addFilter(_SuppressCleanClose())
+logging.getLogger("google.adk").addFilter(_SuppressCleanClose())
+
 # Ensure app/ is on sys.path so sibling imports resolve
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -73,19 +83,18 @@ except Exception as _status_err:
 
 # Tool name → status message shown while the tool is running
 _TOOL_STATUS = {
-    "get_solar_data":           "☀️ Fetching solar potential data for your address…",
+    "run_solar_analysis":       "☀️ Fetching solar data, tax benefits, and incentives…",
+    "calculate_outdoor_solar":  "💡 Fetching live pricing and calculating outdoor savings…",
+    "calculate_combined_solar": "🔗 Calculating combined rooftop + outdoor system…",
+    "send_all_rfps":            "📧 Generating and sending RFP emails to all 3 installers…",
     "find_local_installers":    "📋 Finding solar installers near you…",
     "generate_solar_mockup":    "🎨 Rendering AI solar panel mockup…",
     "analyze_space_for_solar":  "🔍 Analysing your space for solar potential…",
-    "generate_rfp":             "✍️ Writing RFP…",
-    "send_rfp_email":           "📧 Sending email…",
-    "get_tax_benefits":         "💰 Calculating federal and state tax incentives…",
-    "search_solar_incentives":  "🔍 Searching for local solar incentives and rebates…",
     "web_search":               "🔍 Searching the web…",
 }
 
 
-async def _before_tool_cb(tool, args, tool_context):
+async def _before_tool_cb(tool, args, tool_context, **kwargs):
     """ADK before_tool_callback — show status in browser BEFORE the sync tool runs."""
     tool_name = getattr(tool, "name", "") or getattr(tool, "__name__", "")
     msg = _TOOL_STATUS.get(tool_name, f"⏳ {tool_name}…")
@@ -93,8 +102,9 @@ async def _before_tool_cb(tool, args, tool_context):
     return None   # None = proceed with normal tool execution
 
 
-async def _after_tool_cb(tool, args, tool_context, result):
-    """ADK after_tool_callback — clear status AFTER the sync tool finishes."""
+async def _after_tool_cb(tool, args, tool_context, result=None, tool_response=None, **kwargs):
+    """ADK after_tool_callback — clear status AFTER the sync tool finishes.
+    Accepts both old ADK signature (result) and new ADK signature (tool_response)."""
     await _async_clear_status()
     return None   # None = don't modify the tool result
 
@@ -328,6 +338,14 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
     )
 
     # -----------------------------------------------------------------------
+    # Loop guard — prevents Gemini Live self-generated turns from reaching
+    # the browser.  After every turn_complete the model is "silenced" until
+    # the user provides explicit input (activity_start, text, image, etc.).
+    # Using a dict so both nested coroutines share the same mutable object.
+    # -----------------------------------------------------------------------
+    _loop_guard = {"user_spoke": True}   # True → allow first model turn
+
+    # -----------------------------------------------------------------------
     # Receive loop: browser → ADK
     # -----------------------------------------------------------------------
     async def receive_loop():
@@ -354,6 +372,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                     kind = payload.get("type")
 
                     if kind == "text":
+                        _loop_guard["user_spoke"] = True
                         live_queue.send_content(
                             types.Content(
                                 role="user",
@@ -369,6 +388,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         )
 
                     elif kind == "camera_on":
+                        _loop_guard["user_spoke"] = True
                         # First frame captured when the user activates the camera.
                         # Sent as a full content turn (not just realtime context) so the
                         # agent immediately responds with a visual description of the space
@@ -396,6 +416,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         )
 
                     elif kind == "capture":
+                        _loop_guard["user_spoke"] = True
                         # Explicit image turn (camera snapshot OR uploaded file).
                         # Save bytes to a temp file so analyze_space_for_solar can
                         # read them from disk — the tool expects a filesystem path.
@@ -477,16 +498,23 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                             log.info("context_update injected into live session (%d chars)", len(context_text))
 
                     elif kind == "activity_start":
-                        # User started speaking — tell the model to stop any current
-                        # response (interruption) and start listening
-                        log.info("activity_start — user began speaking")
+                        # User started speaking — suppress model audio immediately
+                        # so any in-flight model turn is silenced the instant the
+                        # user opens the mic.  We re-enable on activity_end once
+                        # the user has finished speaking and we want the model to
+                        # respond.  This is the key fix for the loop problem: the
+                        # old code set user_spoke=True here, which re-enabled model
+                        # audio and let any pending model turn resume audibly right
+                        # after the interruption signal was sent.
+                        log.info("activity_start — user began speaking; suppressing model audio")
+                        _loop_guard["user_spoke"] = False
                         live_queue.send_activity_start()
 
                     elif kind == "end_of_turn":
-                        # User stopped speaking — explicit signal replaces the old
-                        # silence-burst hack.  With VAD disabled this immediately
-                        # tells the model the user's turn is over and to respond.
-                        log.info("end_of_turn received — audio chunks so far: %d — sending activity_end", audio_chunks)
+                        # User stopped speaking — re-enable model audio now so the
+                        # model's reply to the user's utterance can be heard.
+                        log.info("end_of_turn received — audio chunks so far: %d — re-enabling model audio, sending activity_end", audio_chunks)
+                        _loop_guard["user_spoke"] = True
                         live_queue.send_activity_end()
                         # Tell the browser the model is now thinking — this lets
                         # the UI show a server-driven "Thinking…" state rather than
@@ -531,22 +559,29 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         for part in getattr(model_turn, "parts", []) or []:
                             inline = getattr(part, "inline_data", None)
                             if inline and getattr(inline, "data", None):
-                                await websocket.send_bytes(inline.data)
+                                if _loop_guard["user_spoke"]:
+                                    await websocket.send_bytes(inline.data)
+                                else:
+                                    log.warning("loop-guard: suppressing self-generated audio (server_content)")
                             if getattr(part, "text", None):
-                                await websocket.send_text(
-                                    json.dumps({"type": "transcript", "role": "model", "text": part.text})
-                                )
+                                if _loop_guard["user_spoke"]:
+                                    await websocket.send_text(
+                                        json.dumps({"type": "transcript", "role": "model", "text": part.text})
+                                    )
                     output_tx = getattr(server_content, "output_transcription", None)
                     if output_tx and getattr(output_tx, "text", None):
-                        await websocket.send_text(
-                            json.dumps({"type": "transcript", "role": "model", "text": output_tx.text})
-                        )
+                        if _loop_guard["user_spoke"]:
+                            await websocket.send_text(
+                                json.dumps({"type": "transcript", "role": "model", "text": output_tx.text})
+                            )
                     # server_content turn_complete / interrupted (non-native-audio models)
                     if getattr(server_content, "turn_complete", False):
                         log.info("turn_complete via server_content (fallback)")
                         await websocket.send_text(json.dumps({"type": "turn_complete"}))
+                        _loop_guard["user_spoke"] = False
                     if getattr(server_content, "interrupted", False):
-                        log.info("interrupted via server_content (fallback)")
+                        log.info("interrupted via server_content (fallback) — keeping model audio suppressed")
+                        _loop_guard["user_spoke"] = False
                         await websocket.send_text(json.dumps({"type": "turn_complete"}))
 
                 # ── Content events (audio / text via event.content path) ─────────
@@ -558,11 +593,17 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                         text   = getattr(part, "text", None)
                         inline = getattr(part, "inline_data", None)
                         if text:
-                            await websocket.send_text(
-                                json.dumps({"type": "transcript", "role": role, "text": text})
-                            )
+                            if _loop_guard["user_spoke"]:
+                                await websocket.send_text(
+                                    json.dumps({"type": "transcript", "role": role, "text": text})
+                                )
+                            else:
+                                log.warning("loop-guard: suppressing self-generated text (content)")
                         if inline and getattr(inline, "data", None):
-                            await websocket.send_bytes(inline.data)
+                            if _loop_guard["user_spoke"]:
+                                await websocket.send_bytes(inline.data)
+                            else:
+                                log.warning("loop-guard: suppressing self-generated audio (content)")
 
                 # ── Solar mockup side-channel drain ──────────────────────────────
                 # generate_solar_mockup() stores image bytes in solar_mockup._pending_images
@@ -590,9 +631,15 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                     if getattr(actions, "turn_complete", False):
                         log.info("turn_complete via event.actions")
                         await websocket.send_text(json.dumps({"type": "turn_complete"}))
-                    # interrupted fires when the user speaks over the model
+                        _loop_guard["user_spoke"] = False
+                        log.info("loop-guard: awaiting user input before next model turn")
+                    # interrupted fires when the user speaks over the model.
+                    # Keep user_spoke=False so any follow-up model turn generated
+                    # from stale tool context stays silent until the user finishes
+                    # speaking (activity_end re-enables it).
                     if getattr(actions, "interrupted", False):
-                        log.info("interrupted via event.actions")
+                        log.info("interrupted via event.actions — keeping model audio suppressed until activity_end")
+                        _loop_guard["user_spoke"] = False
                         await websocket.send_text(json.dumps({"type": "turn_complete"}))
 
             # ── Generator exhausted (session ended cleanly) ───────────────────

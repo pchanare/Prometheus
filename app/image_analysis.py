@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import base64
 import requests
 import google.auth
@@ -80,19 +82,27 @@ def analyze_space_for_solar(image_path: str, space_description: str = "outdoor s
                         }
                     },
                     {
-                        "text": f"""Analyze this {space_description} image for 
-                        ground-mounted solar panel installation potential.
-                        Please provide:
-                        1. AVAILABLE AREA: Usable area in square feet
-                        2. PANEL COUNT: How many ground-mounted panels could fit
-                           (standard panel is 3.5ft x 5.5ft)
-                        3. OBSTACLES: Trees, shade, structures or challenges
-                        4. SUN EXPOSURE: Orientation and sunlight assessment
-                        5. RECOMMENDED CONFIGURATION: Best panel layout
-                        6. ENERGY POTENTIAL: Estimated annual energy in kWh
-                        7. SUITABILITY SCORE: Rate the space 1-10
-                        8. RECOMMENDATIONS: Top 3 specific action items
-                        Be specific, practical and encouraging."""
+                        "text": f"""Analyze this {space_description} image for solar panel installation.
+
+IMPORTANT RULES:
+- Every outdoor space can support solar. Your job is to find the BEST option, not judge suitability.
+- installation_type MUST be exactly "canopy" or "ground_mount" — no other values allowed.
+  Choose "canopy" for patios, decks, backyards, and spaces where shade is valuable.
+  Choose "ground_mount" for open land, fields, and large open yards.
+- panel_count must be at least 2. Even a small or partially shaded space can fit a few panels.
+- area_sq_ft must always be a positive integer — estimate the visible usable area.
+
+Return your analysis ONLY as valid JSON with exactly these fields (no markdown, no extra text):
+{{
+  "area_sq_ft": <integer, estimated usable area in square feet — must be greater than 0>,
+  "panel_count": <integer, number of standard 400W panels (3.5ft x 5.5ft) that fit — minimum 2>,
+  "installation_type": "<string, must be exactly 'canopy' or 'ground_mount'>",
+  "obstacles": "<string, description of any trees, shade, or structures to work around>",
+  "sun_exposure": "<string, orientation and sunlight assessment>",
+  "recommended_config": "<string, best panel layout for the chosen installation type>",
+  "annual_energy_kwh": <integer, estimated annual energy generation in kWh>,
+  "recommendations": ["<practical tip 1>", "<practical tip 2>", "<practical tip 3>"]
+}}"""
                     }
                 ]
             }],
@@ -106,12 +116,32 @@ def analyze_space_for_solar(image_path: str, space_description: str = "outdoor s
 
         if response.ok:
             data = response.json()
-            analysis = data["candidates"][0]["content"]["parts"][0]["text"]
-            return {
-                "space_type": space_description,
-                "analysis": analysis,
-                "status": "success"
-            }
+            raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+
+            # Parse the JSON response into structured fields
+            try:
+                json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+                analysis_data = json.loads(json_match.group() if json_match else raw_text)
+                return {
+                    "space_type": space_description,
+                    "panel_count": analysis_data.get("panel_count"),
+                    "area_sq_ft": analysis_data.get("area_sq_ft"),
+                    "installation_type": analysis_data.get("installation_type", "canopy"),
+                    "obstacles": analysis_data.get("obstacles", ""),
+                    "sun_exposure": analysis_data.get("sun_exposure", ""),
+                    "recommended_config": analysis_data.get("recommended_config", ""),
+                    "annual_energy_kwh": analysis_data.get("annual_energy_kwh"),
+                    "recommendations": analysis_data.get("recommendations", []),
+                    "analysis": raw_text,
+                    "status": "success",
+                }
+            except (json.JSONDecodeError, AttributeError):
+                # Fallback: return raw text so the agent still has something to work with
+                return {
+                    "space_type": space_description,
+                    "analysis": raw_text,
+                    "status": "success",
+                }
         else:
             return {
                 "error": f"Vertex AI error {response.status_code}: {response.text}",
