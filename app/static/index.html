@@ -757,7 +757,11 @@ function handleMessage(e) {
     // Lives in its own element so audio chunks calling setStatus() can never
     // clobber it.
     statusDetail.textContent = msg.text;
-    statusDetail.classList.add('visible');
+    if (msg.text) {
+      statusDetail.classList.add('visible');
+    } else {
+      statusDetail.classList.remove('visible');
+    }
   }
   else if (msg.type === 'error') {
     addMessage('model', `⚠️ ${msg.text}`);
