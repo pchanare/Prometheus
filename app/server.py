@@ -64,6 +64,15 @@ except Exception as _mockup_err:
     def _pop_mockup_images():
         return []
 
+# Clear session memory on every server restart so stale facts from a previous
+# run never bleed into a fresh server process.
+try:
+    from session_memory import reset as _reset_mem_on_startup
+    _reset_mem_on_startup()
+    log.info("Session memory cleared on server startup")
+except Exception as _mem_startup_err:
+    log.warning("Could not reset session memory on startup: %s", _mem_startup_err)
+
 # Status channel — async before/after tool callbacks send status messages
 # to the browser via WebSocket.  Because the callbacks are async they execute
 # BEFORE the sync tool blocks the event loop, guaranteeing the browser sees
@@ -73,6 +82,7 @@ try:
         init as _init_status_channel,
         async_push_status as _async_push_status,
         async_clear_status as _async_clear_status,
+        async_send_json as _async_send_json,
     )
     _status_ok = True
 except Exception as _status_err:
@@ -81,30 +91,121 @@ except Exception as _status_err:
     def _init_status_channel(*a, **kw):
         pass
 
-# Tool name → status message shown while the tool is running
-_TOOL_STATUS = {
-    "run_solar_analysis":       "☀️ Fetching solar data, tax benefits, and incentives…",
-    "calculate_outdoor_solar":  "💡 Fetching live pricing and calculating outdoor savings…",
-    "calculate_combined_solar": "🔗 Calculating combined rooftop + outdoor system…",
-    "send_all_rfps":            "📧 Generating and sending RFP emails to all 3 installers…",
-    "find_local_installers":    "📋 Finding solar installers near you…",
-    "generate_solar_mockup":    "🎨 Rendering AI solar panel mockup…",
-    "analyze_space_for_solar":  "🔍 Analysing your space for solar potential…",
-    "web_search":               "🔍 Searching the web…",
+# Tool name → ordered list of (pill_text, send_tool_flag) status steps.
+# send_tool_flag=True on the first entry causes that message to carry the
+# 'tool' field, which triggers _addStep() in the browser step-tracker.
+# Subsequent False entries only update the pill text — no new step created.
+# All messages are sent from _before_tool_cb (async, before the sync tool
+# blocks the event loop), giving a multi-step "agent is working" appearance.
+_TOOL_STATUS_STEPS = {
+    "run_solar_analysis": [
+        ("Geocoding your address with Google Maps…",         True),
+        ("Querying Google Solar API for rooftop data…",      False),
+        ("Analysing sunshine hours and roof capacity…",      False),
+        ("Computing optimal panel configuration…",           False),
+        ("Fetching tax benefits and local incentives…",      False),
+    ],
+    "calculate_outdoor_solar": [
+        ("Searching live market pricing for solar systems…", True),
+        ("Computing outdoor solar financials and payback…",  False),
+        ("Applying federal ITC and state incentives…",       False),
+    ],
+    "calculate_combined_solar": [
+        ("Combining rooftop and outdoor system data…",       True),
+        ("Computing total incentives and revised payback…",  False),
+    ],
+    "generate_solar_mockup": [
+        ("Composing your solar panel layout…",               True),
+        ("Rendering photorealistic mockup with Imagen 3…",   False),
+    ],
+    "send_all_rfps": [
+        ("Generating personalised RFP emails…",              True),
+        ("Sending emails to all 3 installers via Gmail…",    False),
+    ],
+    "find_local_installers": [
+        ("Searching Google Maps for local solar installers…", True),
+    ],
+    "analyze_space_for_solar": [
+        ("Analysing your space for ground-mount solar…",     True),
+    ],
+    "web_search": [
+        ("Searching the web for current data…",              True),
+    ],
+}
+
+_TOOL_ANNOUNCE = {
+    "run_solar_analysis":       "Pulling your solar data now — this usually takes about 15 seconds.",
+    "calculate_outdoor_solar":  "Calculating your outdoor system costs — just a moment.",
+    "calculate_combined_solar": "Calculating your combined system now — just a moment.",
+    "send_all_rfps":            "Sending your RFP emails now — this takes about 30 seconds.",
+    "find_local_installers":    "Finding local installers near you — just a moment.",
+    "generate_solar_mockup":    "Generating your solar mockup — give me about 30 seconds.",
+    "analyze_space_for_solar":  "Analysing your space now — just a moment.",
 }
 
 
 async def _before_tool_cb(tool, args, tool_context, **kwargs):
-    """ADK before_tool_callback — show status in browser BEFORE the sync tool runs."""
-    tool_name = getattr(tool, "name", "") or getattr(tool, "__name__", "")
-    msg = _TOOL_STATUS.get(tool_name, f"⏳ {tool_name}…")
-    await _async_push_status(msg)
+    """ADK before_tool_callback — fires async BEFORE the sync tool runs.
+
+    Sends a sequence of status bar texts with short delays between them so the
+    browser shows a rich multi-step progress indicator before the sync tool
+    blocks the event loop.  The final asyncio.sleep(0.15) lets the TCP stack
+    flush all messages to the browser before the tool takes over the thread.
+    """
+    tool_name    = getattr(tool, "name", "") or getattr(tool, "__name__", "")
+    steps        = _TOOL_STATUS_STEPS.get(tool_name, [(f"⏳ {tool_name}…", True)])
+    announce_txt = _TOOL_ANNOUNCE.get(tool_name, "")
+
+    for i, (text, send_tool) in enumerate(steps):
+        await _async_push_status(
+            text,
+            speak=announce_txt if i == 0 else "",
+            tool=tool_name    if i == 0 else "",
+        )
+        if i < len(steps) - 1:
+            await asyncio.sleep(0.4)   # brief pause between sub-step updates
+
+    await asyncio.sleep(0.15)   # yield so the TCP stack flushes to the browser NOW
     return None   # None = proceed with normal tool execution
 
 
-async def _after_tool_cb(tool, args, tool_context, result=None, tool_response=None, **kwargs):
-    """ADK after_tool_callback — clear status AFTER the sync tool finishes.
-    Accepts both old ADK signature (result) and new ADK signature (tool_response)."""
+async def _after_tool_cb(tool, args, tool_context, tool_response=None, **kwargs):
+    """ADK after_tool_callback — fires async AFTER the sync tool finishes.
+
+    ADK calls this with tool_response as a KEYWORD argument, so the parameter
+    must be named 'tool_response' (not 'result') or it will always be None.
+
+    For run_solar_analysis: forward the structured result to the browser so
+    the UI can render a solar data card before the model starts speaking.
+
+    IMPORTANT: the sleep(0.08) before the clear is not optional.
+    Some tools call push_status() internally via run_coroutine_threadsafe, which
+    queues the message on the NEXT event-loop tick.  Without the sleep, the
+    async_clear_status() fires FIRST and the thread-queued status update arrives
+    AFTER the clear — leaving a stale status pill stuck in the browser.
+    """
+    tool_name = getattr(tool, "name", "") or getattr(tool, "__name__", "")
+    log.info("_after_tool_cb: tool=%s  tool_response type=%s",
+             tool_name, type(tool_response).__name__)
+
+    _CARD_MSG_TYPE = {
+        "run_solar_analysis":       "solar_data",
+        "calculate_outdoor_solar":  "outdoor_data",
+        "calculate_combined_solar": "combined_data",
+    }
+    if tool_name in _CARD_MSG_TYPE:
+        if isinstance(tool_response, dict) and not tool_response.get("error"):
+            msg_type = _CARD_MSG_TYPE[tool_name]
+            log.info("_after_tool_cb: sending %s card (%d keys)", msg_type, len(tool_response))
+            try:
+                await _async_send_json({"type": msg_type, "data": tool_response})
+            except Exception as exc:
+                log.warning("_after_tool_cb: %s send failed: %s", msg_type, exc)
+        else:
+            log.warning("_after_tool_cb: card skipped for %s — tool_response=%s",
+                        tool_name, str(tool_response)[:120])
+
+    await asyncio.sleep(0.08)   # let any thread-queued push_status() calls flush first
     await _async_clear_status()
     return None   # None = don't modify the tool result
 
@@ -133,6 +234,11 @@ DEFAULT_MODE = "voice"
 # ---------------------------------------------------------------------------
 APP_NAME = "Prometheus"
 session_service = InMemorySessionService()
+
+# Counts WebSocket connections since this server process started.
+# First connection (=1) gets the greeting; subsequent connections are
+# mid-conversation Gemini Live reconnects — no greeting needed.
+_ws_connection_count = 0
 
 
 def make_runner(mode: str, memory_note: str = "") -> Runner:
@@ -267,9 +373,15 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
     mode_cfg = MODES[mode]
     modalities = mode_cfg["response_modalities"]
 
+    global _ws_connection_count
+    _ws_connection_count += 1
+    _is_reconnect = _ws_connection_count > 1
+
     user_id = "user"
     session_id = str(uuid.uuid4())
-    log.info("New session %s  mode=%s", session_id[:8], mode)
+    log.info("New session %s  mode=%s  connection#=%d%s",
+             session_id[:8], mode, _ws_connection_count,
+             " (reconnect)" if _is_reconnect else "")
 
     # ── Session memory → system instruction ─────────────────────────────────
     # Append stored facts to the agent's system instruction so the model
@@ -344,190 +456,6 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
     # Using a dict so both nested coroutines share the same mutable object.
     # -----------------------------------------------------------------------
     _loop_guard = {"user_spoke": True}   # True → allow first model turn
-
-    # -----------------------------------------------------------------------
-    # Receive loop: browser → ADK
-    # -----------------------------------------------------------------------
-    async def receive_loop():
-        audio_chunks = 0
-        try:
-            while True:
-                message = await websocket.receive()
-                raw_bytes = message.get("bytes")
-                raw_text  = message.get("text")
-
-                if raw_bytes:
-                    # Raw PCM audio – 16 kHz, mono, S16LE (resampled in browser)
-                    live_queue.send_realtime(
-                        types.Blob(data=raw_bytes, mime_type="audio/pcm;rate=16000")
-                    )
-                    audio_chunks += 1
-                    if audio_chunks == 1:
-                        log.info("First audio chunk received (%d bytes)", len(raw_bytes))
-                    if audio_chunks % 20 == 0:
-                        log.info("Audio chunks forwarded: %d", audio_chunks)
-
-                elif raw_text:
-                    payload = json.loads(raw_text)
-                    kind = payload.get("type")
-
-                    if kind == "text":
-                        _loop_guard["user_spoke"] = True
-                        live_queue.send_content(
-                            types.Content(
-                                role="user",
-                                parts=[types.Part(text=payload["content"])],
-                            )
-                        )
-
-                    elif kind == "image":
-                        # Passive image (e.g. uploaded file) — sent as realtime context
-                        img_bytes = base64.b64decode(payload["data"])
-                        live_queue.send_realtime(
-                            types.Blob(data=img_bytes, mime_type="image/jpeg")
-                        )
-
-                    elif kind == "camera_on":
-                        _loop_guard["user_spoke"] = True
-                        # First frame captured when the user activates the camera.
-                        # Sent as a full content turn (not just realtime context) so the
-                        # agent immediately responds with a visual description of the space
-                        # and an invitation to upload a photo for detailed solar analysis.
-                        img_bytes = base64.b64decode(payload["data"])
-                        log.info("camera_on: first frame received (%d bytes) — triggering visual commentary", len(img_bytes))
-                        live_queue.send_content(
-                            types.Content(
-                                role="user",
-                                parts=[
-                                    types.Part(
-                                        inline_data=types.Blob(data=img_bytes, mime_type="image/jpeg")
-                                    ),
-                                    types.Part(
-                                        text=(
-                                            "I've just turned on my camera. "
-                                            "Please describe what you see in this space and give a quick "
-                                            "assessment of its solar potential. "
-                                            "Then invite me to take a clear photo and upload it to the chat "
-                                            "for a detailed solar analysis and mockup."
-                                        )
-                                    ),
-                                ],
-                            )
-                        )
-
-                    elif kind == "capture":
-                        _loop_guard["user_spoke"] = True
-                        # Explicit image turn (camera snapshot OR uploaded file).
-                        # Save bytes to a temp file so analyze_space_for_solar can
-                        # read them from disk — the tool expects a filesystem path.
-                        img_bytes = base64.b64decode(payload["data"])
-                        tmp_path = os.path.join(
-                            tempfile.gettempdir(),
-                            f"prometheus_{uuid.uuid4().hex[:8]}.jpg",
-                        )
-                        with open(tmp_path, "wb") as _f:
-                            _f.write(img_bytes)
-                        log.info("Capture saved → %s (%d bytes)", tmp_path, len(img_bytes))
-                        try:
-                            from session_memory import update as _mem
-                            _mem(last_image_path=tmp_path)
-                        except Exception:
-                            pass
-
-                        user_label = payload.get("label")
-                        if user_label:
-                            # Append temp path so the model can pass it to analyze_space_for_solar
-                            label = f"{user_label}\n[Image saved at: {tmp_path}]"
-                        else:
-                            label = (
-                                f"I just shared this image (saved at: {tmp_path}). "
-                                "Please describe what you see and how it relates to solar installation. "
-                                f"If it shows an outdoor space (backyard, garden, courtyard, etc.), "
-                                f"call analyze_space_for_solar with image_path=\"{tmp_path}\" "
-                                "and the appropriate space_type."
-                            )
-                        log.info("Capture label: %r", label[:80])
-                        live_queue.send_content(
-                            types.Content(
-                                role="user",
-                                parts=[
-                                    types.Part(
-                                        inline_data=types.Blob(
-                                            data=img_bytes,
-                                            mime_type="image/jpeg",
-                                        )
-                                    ),
-                                    types.Part(text=label),
-                                ],
-                            )
-                        )
-
-                    elif kind == "context_update":
-                        # Injected context from the browser — the PDF Specialist model
-                        # extracted structured data from any uploaded document.
-                        # Format it as a natural-language note and inject into the
-                        # live session so the agent can reference it immediately.
-                        data = payload.get("data", {})
-                        log.info("context_update received: type=%s", data.get("document_type", "unknown"))
-
-                        doc_type  = data.get("document_type", "Document")
-                        summary   = data.get("summary", "")
-                        key_facts = data.get("key_facts") or []
-
-                        lines = [f"[SYSTEM NOTE — {doc_type} analysed by PDF Specialist]"]
-                        if summary:
-                            lines.append(summary)
-                        for fact in key_facts:
-                            k = fact.get("key", "").strip()
-                            v = fact.get("value", "")
-                            if k and v is not None and str(v).strip():
-                                lines.append(f"  {k}: {v}")
-                        lines.append(
-                            "Use all information above when answering the user's questions. "
-                            "Do NOT ask the user for data that is already present here."
-                        )
-
-                        context_text = "\n".join(lines)
-                        if context_text:
-                            live_queue.send_content(
-                                types.Content(
-                                    role="user",
-                                    parts=[types.Part(text=context_text)],
-                                )
-                            )
-                            log.info("context_update injected into live session (%d chars)", len(context_text))
-
-                    elif kind == "activity_start":
-                        # User started speaking — suppress model audio immediately
-                        # so any in-flight model turn is silenced the instant the
-                        # user opens the mic.  We re-enable on activity_end once
-                        # the user has finished speaking and we want the model to
-                        # respond.  This is the key fix for the loop problem: the
-                        # old code set user_spoke=True here, which re-enabled model
-                        # audio and let any pending model turn resume audibly right
-                        # after the interruption signal was sent.
-                        log.info("activity_start — user began speaking; suppressing model audio")
-                        _loop_guard["user_spoke"] = False
-                        live_queue.send_activity_start()
-
-                    elif kind == "end_of_turn":
-                        # User stopped speaking — re-enable model audio now so the
-                        # model's reply to the user's utterance can be heard.
-                        log.info("end_of_turn received — audio chunks so far: %d — re-enabling model audio, sending activity_end", audio_chunks)
-                        _loop_guard["user_spoke"] = True
-                        live_queue.send_activity_end()
-                        # Tell the browser the model is now thinking — this lets
-                        # the UI show a server-driven "Thinking…" state rather than
-                        # relying on the JS-side "Processing…" hardcode.
-                        try:
-                            await websocket.send_text(json.dumps({"type": "thinking"}))
-                        except Exception:
-                            pass
-
-        except (WebSocketDisconnect, Exception) as exc:
-            log.info("Receive loop ended: %s", exc)
-        finally:
-            live_queue.close()
 
     # -----------------------------------------------------------------------
     # Send loop: ADK → browser
@@ -659,7 +587,197 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
             except Exception:
                 pass
 
-    await asyncio.gather(receive_loop(), send_loop())
+    # ── Auto-greeting trigger ────────────────────────────────────────────────
+    # Gemini Live does not auto-speak at session start — it waits for user input.
+    # We delay the [SESSION_START] injection by 0.6 s so that if the user sends
+    # a message (e.g. "hello") at the same moment the server starts up, the
+    # greeting turn is skipped and we avoid two overlapping model responses.
+    # The _user_spoke_first flag is set by receive_loop on the very first user
+    # text / voice / image message.
+    _user_spoke_first = {"val": False}
+
+    async def receive_loop():
+        audio_chunks = 0
+        try:
+            while True:
+                message = await websocket.receive()
+                raw_bytes = message.get("bytes")
+                raw_text  = message.get("text")
+
+                if raw_bytes:
+                    _user_spoke_first["val"] = True
+                    live_queue.send_realtime(
+                        types.Blob(data=raw_bytes, mime_type="audio/pcm;rate=16000")
+                    )
+                    audio_chunks += 1
+                    if audio_chunks == 1:
+                        log.info("First audio chunk received (%d bytes)", len(raw_bytes))
+                    if audio_chunks % 20 == 0:
+                        log.info("Audio chunks forwarded: %d", audio_chunks)
+
+                elif raw_text:
+                    payload = json.loads(raw_text)
+                    kind = payload.get("type")
+
+                    if kind == "text":
+                        _user_spoke_first["val"] = True
+                        _loop_guard["user_spoke"] = True
+                        live_queue.send_content(
+                            types.Content(
+                                role="user",
+                                parts=[types.Part(text=payload["content"])],
+                            )
+                        )
+
+                    elif kind == "image":
+                        img_bytes = base64.b64decode(payload["data"])
+                        live_queue.send_realtime(
+                            types.Blob(data=img_bytes, mime_type="image/jpeg")
+                        )
+
+                    elif kind == "camera_on":
+                        _user_spoke_first["val"] = True
+                        _loop_guard["user_spoke"] = True
+                        img_bytes = base64.b64decode(payload["data"])
+                        log.info("camera_on: first frame received (%d bytes) — triggering visual commentary", len(img_bytes))
+                        live_queue.send_content(
+                            types.Content(
+                                role="user",
+                                parts=[
+                                    types.Part(
+                                        inline_data=types.Blob(data=img_bytes, mime_type="image/jpeg")
+                                    ),
+                                    types.Part(
+                                        text=(
+                                            "I've just turned on my camera. "
+                                            "Please describe what you see in this space and give a quick "
+                                            "assessment of its solar potential. "
+                                            "Then invite me to take a clear photo and upload it to the chat "
+                                            "for a detailed solar analysis and mockup."
+                                        )
+                                    ),
+                                ],
+                            )
+                        )
+
+                    elif kind == "capture":
+                        _user_spoke_first["val"] = True
+                        _loop_guard["user_spoke"] = True
+                        img_bytes = base64.b64decode(payload["data"])
+                        tmp_path = os.path.join(
+                            tempfile.gettempdir(),
+                            f"prometheus_{uuid.uuid4().hex[:8]}.jpg",
+                        )
+                        with open(tmp_path, "wb") as _f:
+                            _f.write(img_bytes)
+                        log.info("Capture saved → %s (%d bytes)", tmp_path, len(img_bytes))
+                        try:
+                            from session_memory import update as _mem
+                            _mem(last_image_path=tmp_path)
+                        except Exception:
+                            pass
+
+                        user_label = payload.get("label")
+                        if user_label:
+                            label = f"{user_label}\n[Image saved at: {tmp_path}]"
+                        else:
+                            label = (
+                                f"I just shared this image (saved at: {tmp_path}). "
+                                "Please describe what you see and how it relates to solar installation. "
+                                f"If it shows an outdoor space (backyard, garden, courtyard, etc.), "
+                                f"call analyze_space_for_solar with image_path=\"{tmp_path}\" "
+                                "and the appropriate space_type."
+                            )
+                        log.info("Capture label: %r", label[:80])
+                        live_queue.send_content(
+                            types.Content(
+                                role="user",
+                                parts=[
+                                    types.Part(
+                                        inline_data=types.Blob(
+                                            data=img_bytes,
+                                            mime_type="image/jpeg",
+                                        )
+                                    ),
+                                    types.Part(text=label),
+                                ],
+                            )
+                        )
+
+                    elif kind == "context_update":
+                        data = payload.get("data", {})
+                        log.info("context_update received: type=%s", data.get("document_type", "unknown"))
+
+                        doc_type  = data.get("document_type", "Document")
+                        summary   = data.get("summary", "")
+                        key_facts = data.get("key_facts") or []
+
+                        lines = [f"[SYSTEM NOTE — {doc_type} analysed by PDF Specialist]"]
+                        if summary:
+                            lines.append(summary)
+                        for fact in key_facts:
+                            k = fact.get("key", "").strip()
+                            v = fact.get("value", "")
+                            if k and v is not None and str(v).strip():
+                                lines.append(f"  {k}: {v}")
+                        lines.append(
+                            "Use all information above when answering the user's questions. "
+                            "Do NOT ask the user for data that is already present here."
+                        )
+
+                        context_text = "\n".join(lines)
+                        if context_text:
+                            live_queue.send_content(
+                                types.Content(
+                                    role="user",
+                                    parts=[types.Part(text=context_text)],
+                                )
+                            )
+                            log.info("context_update injected into live session (%d chars)", len(context_text))
+
+                    elif kind == "activity_start":
+                        log.info("activity_start — user began speaking; suppressing model audio")
+                        _loop_guard["user_spoke"] = False
+                        live_queue.send_activity_start()
+
+                    elif kind == "end_of_turn":
+                        _user_spoke_first["val"] = True
+                        log.info("end_of_turn received — audio chunks so far: %d — re-enabling model audio, sending activity_end", audio_chunks)
+                        _loop_guard["user_spoke"] = True
+                        live_queue.send_activity_end()
+                        try:
+                            await websocket.send_text(json.dumps({"type": "thinking"}))
+                        except Exception:
+                            pass
+
+        except (WebSocketDisconnect, Exception) as exc:
+            log.info("Receive loop ended: %s", exc)
+        finally:
+            live_queue.close()
+
+    async def _session_start_task():
+        """Inject [SESSION_START] after a short delay.
+
+        Skipped entirely on mid-conversation reconnects (Gemini Live timeout)
+        so the model resumes silently instead of replaying the welcome greeting.
+        Also skipped if the user already spoke first (avoids double-response race).
+        """
+        await asyncio.sleep(0.6)
+        if _is_reconnect:
+            log.info("Reconnect — skipping SESSION_START greeting (session %s)", session_id[:8])
+            return
+        if not _user_spoke_first["val"]:
+            live_queue.send_content(
+                types.Content(
+                    role="user",
+                    parts=[types.Part(text="[SESSION_START]")],
+                )
+            )
+            log.info("SESSION_START injected for session %s", session_id[:8])
+        else:
+            log.info("SESSION_START skipped — user spoke first (session %s)", session_id[:8])
+
+    await asyncio.gather(receive_loop(), send_loop(), _session_start_task())
 
 
 # ---------------------------------------------------------------------------

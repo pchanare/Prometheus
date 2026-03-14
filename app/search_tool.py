@@ -18,12 +18,12 @@ def search_solar_incentives(state: str, system_cost_usd: float) -> dict:
     Returns:
         Dict with search results about incentives and estimated savings
     """
-    try:
-        from status_channel import push_status as _push_status
-        _push_status("🔍 Searching for local solar incentives and rebates…")
-    except Exception:
-        pass
-
+    # NOTE: push_status is intentionally NOT called here.
+    # search_solar_incentives is called internally by run_solar_analysis,
+    # which already owns the status pill via before_tool_callback.
+    # Calling push_status from a thread (run_coroutine_threadsafe) queues the
+    # message on the next event-loop tick — AFTER after_tool_callback has already
+    # sent the clear — so the stale text overwrites the blank and the pill stays.
     queries = [
         f"{state} solar tax incentives rebates 2025",
         f"{state} utility solar rebate programs 2025",
