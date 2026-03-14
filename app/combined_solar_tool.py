@@ -60,6 +60,7 @@ def calculate_combined_solar(
     """
     from search_installation_cost import search_installation_cost
     from tax_benefits import get_tax_benefits
+    from search_tool import search_solar_incentives
 
     state             = (state or "").upper().strip()
     installation_type = (installation_type or "canopy").lower().strip()
@@ -103,6 +104,14 @@ def calculate_combined_solar(
     revised_cost    = tax.get("revised_cost_usd", total_cost)
     revised_payback = round(revised_cost / estimated_annual_savings, 1) if estimated_annual_savings else 0.0
 
+    # ── Step 5: Local incentive snippets ─────────────────────────────────────
+    try:
+        incentives = search_solar_incentives(state, total_cost)
+        snippets   = incentives.get("incentive_snippets", [])
+    except Exception as exc:
+        log.warning("calculate_combined_solar: search_solar_incentives failed: %s", exc)
+        snippets = []
+
     log.info(
         "calculate_combined_solar: %d+%d panels, combined cost=$%s, revised=$%s, payback=%.1f yrs",
         matched_panels, outdoor_panel_count, total_cost, revised_cost, revised_payback,
@@ -131,4 +140,5 @@ def calculate_combined_solar(
         "total_incentives_usd":         tax.get("total_incentives_usd"),
         "revised_cost_usd":             revised_cost,
         "revised_payback_years":        revised_payback,
+        "incentive_snippets":           snippets,
     }

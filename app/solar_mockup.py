@@ -159,11 +159,6 @@ def generate_solar_mockup(
         # Rooftop: always use Street View so the mockup shows the actual building.
         # Street View captures the front facade that matters for rooftop installs;
         # user-uploaded photos are not useful here.
-        try:
-            from status_channel import push_status as _push_status
-            _push_status("🗺️ Fetching your property photo…")
-        except Exception:
-            pass
         photo_bytes = _fetch_street_view(address)
         if photo_bytes:
             photo_source = "street_view"
@@ -187,11 +182,6 @@ def generate_solar_mockup(
             log.info("generate_solar_mockup: %s — no user photo provided, using text-only prompt", _type)
 
     log.info("generate_solar_mockup: photo_source=%s", photo_source)
-    try:
-        from status_channel import push_status as _push_status
-        _push_status("🎨 Rendering AI solar panel mockup…")
-    except Exception:
-        pass
     image_bytes = generate_solar_image(address, panel_count, installation_type, photo_bytes)
 
     if image_bytes:

@@ -49,7 +49,7 @@ def clear_status() -> None:
     push_status("")
 
 
-async def async_push_status(text: str) -> None:
+async def async_push_status(text: str, speak: str = "", tool: str = "") -> None:
     """
     Send a status message to the browser.  MUST be called from an async
     context (e.g. before/after tool callbacks).  The await ensures the
@@ -58,7 +58,12 @@ async def async_push_status(text: str) -> None:
     if _send_fn is None:
         return
     try:
-        await _send_fn(json.dumps({"type": "status", "text": text}))
+        payload: dict = {"type": "status", "text": text}
+        if speak:
+            payload["speak"] = speak
+        if tool:
+            payload["tool"] = tool
+        await _send_fn(json.dumps(payload))
     except Exception as exc:
         log.debug("async_push_status: %s", exc)
 
@@ -66,3 +71,16 @@ async def async_push_status(text: str) -> None:
 async def async_clear_status() -> None:
     """Hide the status element in the browser."""
     await async_push_status("")
+
+
+async def async_send_json(payload: dict) -> None:
+    """
+    Send an arbitrary JSON message directly to the browser WebSocket.
+    Used by after_tool_callback to deliver financial cards, etc.
+    """
+    if _send_fn is None:
+        return
+    try:
+        await _send_fn(json.dumps(payload))
+    except Exception as exc:
+        log.debug("async_send_json: %s", exc)
