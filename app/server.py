@@ -243,6 +243,11 @@ session_service = InMemorySessionService()
 # mid-conversation Gemini Live reconnects — no greeting needed.
 _ws_connection_count = 0
 
+# Timestamp of the last WebSocket close. Used to distinguish a fast
+# Gemini Live reconnect (<120 s) from a browser page refresh (longer gap).
+_last_ws_close_time: float = 0.0
+_RECONNECT_WINDOW_S: int = 120   # seconds
+
 
 def make_runner(mode: str, memory_note: str = "") -> Runner:
     """
@@ -431,9 +436,12 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
     mode_cfg = MODES[mode]
     modalities = mode_cfg["response_modalities"]
 
-    global _ws_connection_count
+    global _ws_connection_count, _last_ws_close_time
     _ws_connection_count += 1
-    _is_reconnect = _ws_connection_count > 1
+    time_since_close = time.time() - _last_ws_close_time
+    # A Gemini Live reconnect happens within ~30 s of session timeout.
+    # A browser page refresh takes longer — treat it as a fresh session.
+    _is_reconnect = _ws_connection_count > 1 and time_since_close < _RECONNECT_WINDOW_S
 
     user_id = "user"
     session_id = str(uuid.uuid4())
@@ -836,7 +844,12 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
         else:
             log.info("SESSION_START skipped — user spoke first (session %s)", session_id[:8])
 
-    await asyncio.gather(receive_loop(), send_loop(), _session_start_task())
+    try:
+        await asyncio.gather(receive_loop(), send_loop(), _session_start_task())
+    finally:
+        # Record when this WebSocket closed so the next connection can decide
+        # whether it's a fast Gemini Live reconnect or a browser page refresh.
+        _last_ws_close_time = time.time()
 
 
 # ---------------------------------------------------------------------------
