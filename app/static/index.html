@@ -640,6 +640,27 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
 }
 #camera-close:hover { background: rgba(0,0,0,0.8); }
 
+/* Flip camera button — bottom-right of overlay */
+#camera-flip {
+  position: absolute;
+  bottom: 52px;
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.55);
+  color: rgba(255,255,255,0.85);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 61;
+  transition: background var(--t), transform 0.3s;
+}
+#camera-flip:hover  { background: rgba(0,0,0,0.8); }
+#camera-flip.spinning { transform: rotate(180deg); }
+
 /* Viewport wrapper — needed so SVG/scan overlay sits on top of video */
 .camera-viewport {
   position: relative;
@@ -991,6 +1012,114 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
 
 /* Hidden file inputs */
 #pdf-file, #image-file { display: none; }
+
+/* ── Responsive — Tablet (≤ 1024px) ─────────────────────── */
+@media (max-width: 1024px) {
+  body {
+    height: 100dvh;          /* prevents iOS Safari from hiding the input bar */
+  }
+  #left {
+    width: 36%;
+    min-width: 240px;
+    padding: 18px 14px 20px;
+  }
+  #right {
+    min-height: 0;           /* ensures transcript shrinks so input bar stays visible */
+  }
+  #transcript {
+    min-height: 0;
+  }
+  .orb-shell    { width: 148px; height: 148px; }
+  .orb-blobs    { width: 92px;  height: 92px;  }
+  .orb-blob-1   { width: 54px; height: 54px; margin: -27px 0 0 -27px; }
+  .orb-blob-2   { width: 50px; height: 50px; margin: -25px 0 0 -25px; }
+  .orb-blob-3   { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
+  .input-bar    { flex-shrink: 0; }
+  /* Make control buttons the same row as the mic on smaller tablets */
+  .ctrl-row     { flex-wrap: wrap; gap: 8px; justify-content: center; }
+}
+
+/* ── Responsive — Mobile (≤ 640px) ──────────────────────── */
+@media (max-width: 640px) {
+  body {
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  /* Left panel becomes a compact horizontal bar at the top */
+  #left {
+    width: 100%;
+    min-width: unset;
+    height: auto;
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
+  }
+
+  /* Brand stays on left, compact */
+  .left-header {
+    flex-shrink: 0;
+    width: auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .brand-sun  { width: 20px; height: 20px; }
+  .brand-name { font-size: 14px; }
+  .brand-powered { display: none; }
+  .conn-pill  { display: none; }
+
+  /* Orb + status in the centre */
+  .stage {
+    flex: 1;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .orb-shell  { width: 64px; height: 64px; flex-shrink: 0; }
+  .orb-blobs  { width: 46px; height: 46px; }
+  .orb-blob-1 { width: 30px; height: 30px; margin: -15px 0 0 -15px; filter: blur(5px); }
+  .orb-blob-2 { width: 26px; height: 26px; margin: -13px 0 0 -13px; filter: blur(6px); }
+  .orb-blob-3 { width: 22px; height: 22px; margin: -11px 0 0 -11px; filter: blur(6px); }
+  .orb-ring-1, .orb-ring-2, .orb-bloom { display: none; }
+
+  .status-area {
+    align-items: flex-start;
+    text-align: left;
+    min-width: 0;
+  }
+  #status       { font-size: 11px; }
+  #status-detail{ font-size: 10px; }
+  #steps-panel  { display: none; }
+
+  /* Controls stay on the right, compact */
+  .controls { flex-shrink: 0; }
+  .mic-label { display: none; }
+  .ctrl-row  { gap: 6px; }
+  .ctrl-btn  { width: 34px; height: 34px; }
+  .ctrl-btn svg { width: 15px; height: 15px; }
+
+  /* Right panel fills the rest */
+  #right     { flex: 1; min-height: 0; }
+  .input-bar { flex-shrink: 0; padding: 10px 12px; }
+
+  /* Camera overlay — full screen on mobile */
+  #camera-wrap {
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 60%;
+    border-radius: 16px 16px 0 0;
+  }
+  #camera-close { top: 8px; right: 8px; }
+}
 </style>
 </head>
 <body>
@@ -1117,6 +1246,12 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
 ══════════════════════════════════════════════════════════ -->
 <div id="camera-wrap">
   <button id="camera-close" title="Close camera">✕</button>
+  <button id="camera-flip" title="Switch camera">
+    <!-- cameraswitch icon -->
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+      <path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V7a2 2 0 00-2-2zm-2 1l-1.5 1.5L15 6H9L7.5 7.5 6 6H4v12h16V6h-2zM9 12H7l3-3 3 3h-2v3H9v-3zm6 3h-2v-3h-2l3-3 3 3h-2v3z"/>
+    </svg>
+  </button>
   <div class="camera-viewport">
     <video id="camera-preview" autoplay playsinline muted></video>
     <!-- Rule-of-thirds grid + corner brackets -->
@@ -1161,6 +1296,7 @@ let processor       = null;
 let videoStream     = null;
 let cameraOn        = false;
 let frameTimer      = null;
+let facingMode      = 'environment';   // default to rear camera
 let processingTimer = null;
 let reconnectTimer  = null;
 let currentMode     = 'voice';
@@ -1240,6 +1376,7 @@ const cameraWrap   = document.getElementById('camera-wrap');
 const camPreview   = document.getElementById('camera-preview');
 const captureBtn   = document.getElementById('capture-btn');
 const cameraClose  = document.getElementById('camera-close');
+const cameraFlip   = document.getElementById('camera-flip');
 const frameCanvas  = document.getElementById('frame-canvas');
 const imgPreview   = document.getElementById('img-preview');
 const clearBtn     = document.getElementById('clear-btn');
@@ -1542,6 +1679,58 @@ cameraClose.addEventListener('click', () => {
   cameraOn = false;
 });
 
+// Flip camera — swap facingMode and restart stream
+cameraFlip.addEventListener('click', async () => {
+  if (!cameraOn) return;
+  // Stop current stream
+  clearInterval(frameTimer); frameTimer = null;
+  videoStream?.getTracks().forEach(t => t.stop());
+  camPreview.srcObject = null;
+
+  // Toggle facing mode
+  facingMode = (facingMode === 'environment') ? 'user' : 'environment';
+
+  // Brief spin animation on the button
+  cameraFlip.classList.add('spinning');
+  setTimeout(() => cameraFlip.classList.remove('spinning'), 350);
+
+  try {
+    videoStream = await _startCameraStream();
+    camPreview.srcObject = videoStream;
+  } catch (err) {
+    console.error('Camera flip failed:', err.message);
+    setStatus('⚠️ Could not switch camera', '');
+    // Revert facing mode and try original camera
+    facingMode = (facingMode === 'environment') ? 'user' : 'environment';
+    try {
+      videoStream = await _startCameraStream();
+      camPreview.srcObject = videoStream;
+    } catch (_) {
+      cameraWrap.classList.remove('visible');
+      cameraBtn.classList.remove('active');
+      cameraOn = false;
+    }
+    return;
+  }
+
+  // Restart passive frame stream
+  frameTimer = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const skip = document.body.className === 'processing' || document.body.className === 'speaking';
+    if (skip) return;
+    frameCanvas.width  = 320; frameCanvas.height = 240;
+    frameCanvas.getContext('2d').drawImage(camPreview, 0, 0, 320, 240);
+    frameCanvas.toBlob(blob => {
+      if (!blob || !ws || ws.readyState !== WebSocket.OPEN) return;
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        ws.send(JSON.stringify({ type: 'image', data: reader.result.split(',')[1] }));
+      };
+      reader.readAsDataURL(blob);
+    }, 'image/jpeg', 0.5);
+  }, 1500);
+});
+
 // Orb click: toggle listening / cancel pending / start fresh
 micBtn.addEventListener('click', () => {
   if (isRecording) {
@@ -1558,13 +1747,28 @@ micBtn.addEventListener('click', () => {
 });
 
 // ════════════════════════════════════════════════════════════
-//  Camera
+//  Camera helpers
 // ════════════════════════════════════════════════════════════
+async function _startCameraStream() {
+  // Try with the requested facingMode first; fall back to any camera on desktop
+  const constraints = [
+    { video: { width: 640, height: 480, facingMode } },
+    { video: { width: 640, height: 480 } },   // desktop fallback (no facingMode)
+  ];
+  for (const c of constraints) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(c);
+      return stream;
+    } catch (_) { /* try next */ }
+  }
+  throw new Error('No camera available');
+}
+
 cameraBtn.addEventListener('click', async () => {
   resumeAudio();
   if (!cameraOn) {
     try {
-      videoStream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480 } });
+      videoStream = await _startCameraStream();
     } catch (err) {
       console.error('Camera access failed:', err.name, err.message);
       setStatus('⚠️ Camera error — check browser permissions', '');
