@@ -10,22 +10,22 @@
 html, body { height: 100%; overflow: hidden; }
 
 :root {
-  --bg:           #0d0f1e;
-  --bg-panel:     #0b0d1c;
-  --surface:      #15182c;
-  --surface-2:    #1c1f38;
-  --border:       rgba(251,191,36,0.13);
-  --border-hi:    rgba(251,191,36,0.30);
+  --bg:           #141c2e;
+  --bg-panel:     #1a2438;
+  --surface:      #1f2d45;
+  --surface-2:    #273754;
+  --border:       rgba(251,191,36,0.16);
+  --border-hi:    rgba(251,191,36,0.36);
   --amber:        #f59e0b;
   --amber-bright: #fbbf24;
-  --amber-dim:    rgba(245,158,11,0.18);
+  --amber-dim:    rgba(245,158,11,0.20);
   --violet:       #7c3aed;
   --violet-dim:   rgba(124,58,237,0.2);
-  --text:         #f0f0f8;
-  --text-dim:     #9898bc;
-  --text-muted:   #585878;
-  --user-bg:      #1e2040;
-  --model-bg:     #12142a;
+  --text:         #e8eeff;
+  --text-dim:     #8fa4c8;
+  --text-muted:   #566480;
+  --user-bg:      #1e2e4a;
+  --model-bg:     #172035;
   --radius:       16px;
   --t:            0.22s ease;
 }
@@ -51,7 +51,7 @@ body {
   justify-content: space-between;
   padding: 24px 24px 28px;
   border-right: 1px solid var(--border);
-  background: linear-gradient(160deg, #0f1122 0%, #0c0e1c 100%);
+  background: linear-gradient(160deg, #1a2640 0%, #131c30 100%);
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
@@ -1254,7 +1254,7 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   <div class="stage">
 
     <!-- Hint above orb -->
-    <div class="mic-hint">Tap orb to speak · tap again to stop</div>
+    <div class="mic-hint">Tap orb to speak · Tap again to send</div>
 
     <!-- Blob Orb (click = mic toggle) -->
     <div class="orb-shell" id="mic-btn" title="Tap to speak">
