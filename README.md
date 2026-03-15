@@ -131,17 +131,31 @@ Open your browser at **http://localhost:8080**
 
 ## Cloud Deployment
 
-### One-time secret setup
+Deployment is fully automated via a CI/CD pipeline — every `git push origin main` builds and deploys automatically. The steps below are **one-time setup only**.
+
+### Step 1 — Provision infrastructure (Terraform)
+
+Run once in Google Cloud Shell (Terraform is pre-installed):
 
 ```bash
-# Fix Windows line endings if needed
-sed -i 's/\r//' setup_secrets.sh deploy.sh
+cd terraform
+terraform init
+terraform plan
+terraform apply   # type 'yes' when prompted
+```
+
+This creates the Cloud Run service, Service Account, IAM roles, and Artifact Registry repository.
+
+### Step 2 — Store secrets in Secret Manager
+
+```bash
+# Fix Windows line endings if running locally
+sed -i 's/\r//' setup_secrets.sh
 
 bash setup_secrets.sh
 ```
 
-This creates the following secrets in Secret Manager:
-`MAPS_API_KEY`, `GOOGLE_SEARCH_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`, `DOCUMENT_AI_PROCESSOR_ID`
+This stores `MAPS_API_KEY`, `GOOGLE_SEARCH_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`, `DOCUMENT_AI_PROCESSOR_ID` in Secret Manager.
 
 Then upload the Gmail OAuth token:
 
@@ -153,20 +167,26 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --role="roles/secretmanager.secretAccessor"
 ```
 
-### Deploy to Cloud Run
+### Step 3 — Connect GitHub → Cloud Build (one-time, 5 minutes)
+
+1. Go to [console.cloud.google.com/cloud-build/triggers](https://console.cloud.google.com/cloud-build/triggers)
+2. Click **Connect Repository** → select **GitHub**
+3. Authenticate → select your repo → click **Install Google Cloud Build**
+4. Click **Create Trigger** with these settings:
+   - Event: **Push to a branch**
+   - Branch: `^main$`
+   - Configuration: **Cloud Build configuration file** → `cloudbuild.yaml`
+5. Click **Save**
+
+### Step 4 — Deploy
 
 ```bash
-bash deploy.sh
+git push origin main
 ```
 
-`deploy.sh` automates:
-1. Enabling required Google Cloud APIs
-2. Creating the Artifact Registry repository
-3. Creating and configuring a dedicated service account with least-privilege IAM roles
-4. Building the Docker image via Cloud Build and pushing to Artifact Registry
-5. Deploying to Cloud Run with all secrets injected at runtime
+That's it. Every push to `main` automatically builds a fresh Docker image and deploys a new Cloud Run revision — zero manual steps required.
 
-The live URL is printed at the end of the script.
+> **Manual deploy (optional fallback):** If you need to deploy without a git push, run `bash deploy.sh` from Google Cloud Shell.
 
 ---
 
@@ -268,7 +288,7 @@ Every `git push` to `main` automatically builds a fresh Docker image tagged with
 
 ```bash
 # Install Terraform (if not already installed)
-# Windows:  choco install terraform
+# Windows:  winget install HashiCorp.Terraform  (or use Google Cloud Shell — pre-installed)
 # macOS:    brew install terraform
 # Linux:    https://developer.hashicorp.com/terraform/install
 
@@ -285,18 +305,15 @@ Terraform manages:
 - Required API enablement
 - Public (`allUsers`) invoker policy
 
-### Connecting GitHub → Cloud Build (one-time, 5 minutes)
+### Ongoing deploys
 
-1. Go to [console.cloud.google.com/cloud-build/triggers](https://console.cloud.google.com/cloud-build/triggers)
-2. Click **Connect Repository** → select **GitHub**
-3. Authenticate and select your repo (`prometheus-agent`)
-4. Click **Create Trigger** with these settings:
-   - Event: **Push to a branch**
-   - Branch: `^main$`
-   - Configuration: **Cloud Build configuration file** → `cloudbuild.yaml`
-5. Click **Save**
+After the one-time setup above, deploying is simply:
 
-After this, every `git push origin main` triggers a full build and deploy automatically.
+```bash
+git push origin main
+```
+
+Cloud Build picks it up automatically, builds the image, and rolls out a new Cloud Run revision.
 
 ---
 
