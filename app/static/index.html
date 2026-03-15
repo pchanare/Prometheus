@@ -10,22 +10,22 @@
 html, body { height: 100%; overflow: hidden; }
 
 :root {
-  --bg:           #05050c;
-  --bg-panel:     #08080f;
-  --surface:      #0f0f1c;
-  --surface-2:    #161628;
-  --border:       rgba(251,191,36,0.09);
-  --border-hi:    rgba(251,191,36,0.22);
+  --bg:           #0d0f1e;
+  --bg-panel:     #0b0d1c;
+  --surface:      #15182c;
+  --surface-2:    #1c1f38;
+  --border:       rgba(251,191,36,0.13);
+  --border-hi:    rgba(251,191,36,0.30);
   --amber:        #f59e0b;
   --amber-bright: #fbbf24;
   --amber-dim:    rgba(245,158,11,0.18);
   --violet:       #7c3aed;
   --violet-dim:   rgba(124,58,237,0.2);
-  --text:         #e4e4f0;
-  --text-dim:     #6c6c90;
-  --text-muted:   #38384e;
-  --user-bg:      #1a1a32;
-  --model-bg:     #0d0d1e;
+  --text:         #f0f0f8;
+  --text-dim:     #9898bc;
+  --text-muted:   #585878;
+  --user-bg:      #1e2040;
+  --model-bg:     #12142a;
   --radius:       16px;
   --t:            0.22s ease;
 }
@@ -51,7 +51,7 @@ body {
   justify-content: space-between;
   padding: 24px 24px 28px;
   border-right: 1px solid var(--border);
-  background: linear-gradient(160deg, #080810 0%, #050508 100%);
+  background: linear-gradient(160deg, #0f1122 0%, #0c0e1c 100%);
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
@@ -362,15 +362,18 @@ body.speaking   #status { color: var(--amber); }
   z-index: 1;
 }
 
-/* Mic hint label */
-.mic-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* Mic hint — sits directly above the orb */
+.mic-hint {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(251,191,36,0.55);
+  letter-spacing: 0.02em;
+  text-align: center;
+  line-height: 1.4;
   transition: color var(--t);
+  pointer-events: none;
 }
-body.listening .mic-label { color: rgba(251,191,36,0.5); }
+body.listening .mic-hint { color: rgba(251,191,36,0.80); }
 
 /* Secondary controls */
 .ctrl-row {
@@ -383,9 +386,9 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-hi);
   background: var(--surface);
-  color: var(--text-dim);
+  color: #c0c4e8;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -394,7 +397,7 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
 }
 .ctrl-btn svg { width: 18px; height: 18px; fill: currentColor; }
 .ctrl-btn:hover {
-  border-color: var(--border-hi);
+  border-color: var(--amber-bright);
   color: var(--amber-bright);
   background: var(--surface-2);
   transform: scale(1.1);
@@ -1101,10 +1104,10 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
 
   /* Controls stay on the right, compact */
   .controls { flex-shrink: 0; }
-  .mic-label { display: none; }
+  .mic-hint { display: none; }
   .ctrl-row  { gap: 6px; }
-  .ctrl-btn  { width: 34px; height: 34px; }
-  .ctrl-btn svg { width: 15px; height: 15px; }
+  .ctrl-btn  { width: 36px; height: 36px; }
+  .ctrl-btn svg { width: 16px; height: 16px; }
 
   /* Right panel fills the rest */
   #right     { flex: 1; min-height: 0; }
@@ -1250,6 +1253,9 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
   <!-- Stage: orb + status -->
   <div class="stage">
 
+    <!-- Hint above orb -->
+    <div class="mic-hint">Tap orb to speak · tap again to stop</div>
+
     <!-- Blob Orb (click = mic toggle) -->
     <div class="orb-shell" id="mic-btn" title="Tap to speak">
       <div class="orb-bloom"></div>
@@ -1282,7 +1288,6 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
 
   <!-- Controls -->
   <div class="controls">
-    <div class="mic-label">Tap orb to speak</div>
     <div class="ctrl-row">
 
       <!-- Camera -->
