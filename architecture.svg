@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="browser-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#1a3354"/>
+    </linearGradient>
+    <linearGradient id="cloudrun-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7c2d12"/>
+      <stop offset="100%" stop-color="#6b2510"/>
+    </linearGradient>
+    <linearGradient id="vertex-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#14532d"/>
+      <stop offset="100%" stop-color="#166534"/>
+    </linearGradient>
+    <linearGradient id="apis-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b0764"/>
+      <stop offset="100%" stop-color="#4a044e"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="rgba(0,0,0,0.4)"/>
+    </filter>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#f59e0b"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#22c55e"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#a855f7"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="680" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="480" y="38" text-anchor="middle" fill="#f59e0b" font-size="22" font-weight="700" letter-spacing="1">Prometheus — AI Solar Advisor</text>
+  <text x="480" y="58" text-anchor="middle" fill="#94a3b8" font-size="12">System Architecture</text>
+
+  <!-- ═══════════════════════════════════════════
+       BROWSER BLOCK
+  ════════════════════════════════════════════ -->
+  <rect x="60" y="75" width="840" height="110" rx="10" fill="url(#browser-grad)" stroke="#3b82f6" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="90" y="97" fill="#93c5fd" font-size="11" font-weight="600" letter-spacing="1">BROWSER  (User)</text>
+
+  <!-- Browser sub-boxes -->
+  <rect x="80" y="105" width="180" height="65" rx="6" fill="rgba(59,130,246,0.15)" stroke="#3b82f6" stroke-width="1"/>
+  <text x="170" y="127" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600">Voice Interface</text>
+  <text x="170" y="143" text-anchor="middle" fill="#64748b" font-size="10">Mic → PCM audio chunks</text>
+  <text x="170" y="157" text-anchor="middle" fill="#64748b" font-size="10">Speaker ← TTS audio</text>
+
+  <rect x="278" y="105" width="180" height="65" rx="6" fill="rgba(59,130,246,0.15)" stroke="#3b82f6" stroke-width="1"/>
+  <text x="368" y="127" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600">Camera / Image Upload</text>
+  <text x="368" y="143" text-anchor="middle" fill="#64748b" font-size="10">Live camera stream</text>
+  <text x="368" y="157" text-anchor="middle" fill="#64748b" font-size="10">Photo capture + file upload</text>
+
+  <rect x="476" y="105" width="180" height="65" rx="6" fill="rgba(59,130,246,0.15)" stroke="#3b82f6" stroke-width="1"/>
+  <text x="566" y="127" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600">Chat + Solar Cards</text>
+  <text x="566" y="143" text-anchor="middle" fill="#64748b" font-size="10">Financial result cards</text>
+  <text x="566" y="157" text-anchor="middle" fill="#64748b" font-size="10">Mockup images + status</text>
+
+  <rect x="674" y="105" width="200" height="65" rx="6" fill="rgba(59,130,246,0.15)" stroke="#3b82f6" stroke-width="1"/>
+  <text x="774" y="127" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600">PDF Upload</text>
+  <text x="774" y="143" text-anchor="middle" fill="#64748b" font-size="10">Electricity bills, HOA docs</text>
+  <text x="774" y="157" text-anchor="middle" fill="#64748b" font-size="10">Roof inspection reports</text>
+
+  <!-- WebSocket arrow down -->
+  <line x1="480" y1="185" x2="480" y2="218" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrow-amber)"/>
+  <rect x="400" y="190" width="160" height="20" rx="4" fill="#1e293b"/>
+  <text x="480" y="204" text-anchor="middle" fill="#f59e0b" font-size="10" font-weight="600">WebSocket  /ws  (audio + JSON)</text>
+
+  <!-- ═══════════════════════════════════════════
+       CLOUD RUN BLOCK
+  ════════════════════════════════════════════ -->
+  <rect x="60" y="222" width="840" height="220" rx="10" fill="url(#cloudrun-grad)" stroke="#f97316" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="90" y="244" fill="#fdba74" font-size="11" font-weight="600" letter-spacing="1">GOOGLE CLOUD RUN  ·  us-central1</text>
+
+  <!-- FastAPI box -->
+  <rect x="80" y="252" width="200" height="170" rx="6" fill="rgba(249,115,22,0.12)" stroke="#f97316" stroke-width="1"/>
+  <text x="180" y="272" text-anchor="middle" fill="#fdba74" font-size="11" font-weight="600">FastAPI Server</text>
+  <text x="180" y="290" text-anchor="middle" fill="#64748b" font-size="10">server.py</text>
+  <line x1="100" y1="296" x2="260" y2="296" stroke="#f97316" stroke-width="0.5" stroke-dasharray="3,3"/>
+  <text x="180" y="313" text-anchor="middle" fill="#94a3b8" font-size="10">HTTP  /  WebSocket</text>
+  <text x="180" y="329" text-anchor="middle" fill="#94a3b8" font-size="10">Static file serving</text>
+  <text x="180" y="345" text-anchor="middle" fill="#94a3b8" font-size="10">PDF upload  /analyze-pdf</text>
+  <text x="180" y="361" text-anchor="middle" fill="#94a3b8" font-size="10">Session memory</text>
+  <text x="180" y="377" text-anchor="middle" fill="#94a3b8" font-size="10">Status channel push</text>
+  <text x="180" y="393" text-anchor="middle" fill="#94a3b8" font-size="10">Before / after tool callbacks</text>
+
+  <!-- ADK Runner box -->
+  <rect x="300" y="252" width="580" height="170" rx="6" fill="rgba(249,115,22,0.12)" stroke="#f97316" stroke-width="1"/>
+  <text x="590" y="272" text-anchor="middle" fill="#fdba74" font-size="11" font-weight="600">Google ADK Runner  (google-adk)</text>
+  <line x1="320" y1="278" x2="860" y2="278" stroke="#f97316" stroke-width="0.5" stroke-dasharray="3,3"/>
+
+  <!-- Agent box inside ADK -->
+  <rect x="318" y="285" width="240" height="125" rx="5" fill="rgba(249,115,22,0.1)" stroke="#fb923c" stroke-width="1"/>
+  <text x="438" y="302" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="600">Prometheus Agent  (agent.py)</text>
+  <text x="438" y="318" text-anchor="middle" fill="#64748b" font-size="9">gemini-live-2.5-flash-native-audio</text>
+  <text x="438" y="332" text-anchor="middle" fill="#94a3b8" font-size="9">InMemorySessionService</text>
+  <text x="438" y="346" text-anchor="middle" fill="#94a3b8" font-size="9">LiveRequestQueue</text>
+  <text x="438" y="360" text-anchor="middle" fill="#94a3b8" font-size="9">RunConfig (AUDIO / TEXT)</text>
+  <text x="438" y="374" text-anchor="middle" fill="#94a3b8" font-size="9">Custom VAD (activity signals)</text>
+  <text x="438" y="390" text-anchor="middle" fill="#94a3b8" font-size="9">Brain tier: gemini-3.1-flash-lite</text>
+
+  <!-- Tools box inside ADK -->
+  <rect x="576" y="285" width="295" height="125" rx="5" fill="rgba(249,115,22,0.1)" stroke="#fb923c" stroke-width="1"/>
+  <text x="723" y="302" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="600">Tools</text>
+  <text x="660" y="320" fill="#94a3b8" font-size="9">• run_solar_analysis</text>
+  <text x="660" y="334" fill="#94a3b8" font-size="9">• generate_solar_mockup</text>
+  <text x="660" y="348" fill="#94a3b8" font-size="9">• calculate_outdoor_solar</text>
+  <text x="660" y="362" fill="#94a3b8" font-size="9">• calculate_combined_solar</text>
+  <text x="790" y="320" fill="#94a3b8" font-size="9">• find_local_installers</text>
+  <text x="790" y="334" fill="#94a3b8" font-size="9">• send_all_rfps</text>
+  <text x="790" y="348" fill="#94a3b8" font-size="9">• analyze_space_for_solar</text>
+  <text x="790" y="362" fill="#94a3b8" font-size="9">• web_search</text>
+
+  <!-- Secret Manager note -->
+  <rect x="318" y="416" width="555" height="20" rx="4" fill="rgba(249,115,22,0.08)" stroke="#f97316" stroke-width="0.5"/>
+  <text x="595" y="430" text-anchor="middle" fill="#fb923c" font-size="9">🔒  API keys + Gmail token injected at runtime from  Secret Manager</text>
+
+  <!-- Arrow from Cloud Run down to Vertex + APIs -->
+  <line x1="280" y1="442" x2="220" y2="478" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-green)"/>
+  <line x1="680" y1="442" x2="680" y2="478" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-purple)"/>
+
+  <!-- ═══════════════════════════════════════════
+       BOTTOM ROW — Vertex AI + Google APIs
+  ════════════════════════════════════════════ -->
+  <!-- Vertex AI box -->
+  <rect x="60" y="482" width="340" height="170" rx="10" fill="url(#vertex-grad)" stroke="#22c55e" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="90" y="504" fill="#86efac" font-size="11" font-weight="600" letter-spacing="1">VERTEX AI  ·  Gemini + Imagen</text>
+  <line x1="80" y1="510" x2="380" y2="510" stroke="#22c55e" stroke-width="0.5" stroke-dasharray="3,3"/>
+
+  <rect x="80" y="517" width="145" height="120" rx="5" fill="rgba(34,197,94,0.08)" stroke="#22c55e" stroke-width="0.8"/>
+  <text x="152" y="534" text-anchor="middle" fill="#86efac" font-size="10" font-weight="600">Conversation</text>
+  <text x="152" y="550" text-anchor="middle" fill="#94a3b8" font-size="9">gemini-live-2.5-flash</text>
+  <text x="152" y="563" text-anchor="middle" fill="#94a3b8" font-size="9">-native-audio</text>
+  <text x="152" y="579" text-anchor="middle" fill="#64748b" font-size="9">Real-time voice</text>
+  <text x="152" y="592" text-anchor="middle" fill="#64748b" font-size="9">Interruption handling</text>
+  <text x="152" y="607" text-anchor="middle" fill="#64748b" font-size="9">Tool calling</text>
+  <text x="152" y="621" text-anchor="middle" fill="#64748b" font-size="9">Native audio output</text>
+
+  <rect x="238" y="517" width="145" height="120" rx="5" fill="rgba(34,197,94,0.08)" stroke="#22c55e" stroke-width="0.8"/>
+  <text x="310" y="534" text-anchor="middle" fill="#86efac" font-size="10" font-weight="600">Image Generation</text>
+  <text x="310" y="550" text-anchor="middle" fill="#94a3b8" font-size="9">gemini-3.1-flash</text>
+  <text x="310" y="563" text-anchor="middle" fill="#94a3b8" font-size="9">-image-preview  (primary)</text>
+  <text x="310" y="579" text-anchor="middle" fill="#64748b" font-size="9">imagen-3.0-generate</text>
+  <text x="310" y="592" text-anchor="middle" fill="#64748b" font-size="9">-001  (fallback)</text>
+  <text x="310" y="607" text-anchor="middle" fill="#64748b" font-size="9">Solar panel mockups</text>
+  <text x="310" y="621" text-anchor="middle" fill="#64748b" font-size="9">on actual property</text>
+
+  <!-- Google APIs box -->
+  <rect x="420" y="482" width="480" height="170" rx="10" fill="url(#apis-grad)" stroke="#a855f7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="450" y="504" fill="#d8b4fe" font-size="11" font-weight="600" letter-spacing="1">GOOGLE CLOUD APIs</text>
+  <line x1="440" y1="510" x2="880" y2="510" stroke="#a855f7" stroke-width="0.5" stroke-dasharray="3,3"/>
+
+  <!-- API grid — 3 columns -->
+  <rect x="438" y="517" width="138" height="120" rx="5" fill="rgba(168,85,247,0.08)" stroke="#a855f7" stroke-width="0.8"/>
+  <text x="507" y="534" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="600">Solar + Maps</text>
+  <text x="507" y="551" text-anchor="middle" fill="#94a3b8" font-size="9">Google Solar API</text>
+  <text x="507" y="565" text-anchor="middle" fill="#64748b" font-size="9">Rooftop potential</text>
+  <text x="507" y="579" text-anchor="middle" fill="#64748b" font-size="9">Panel estimates</text>
+  <text x="507" y="595" text-anchor="middle" fill="#94a3b8" font-size="9">Maps + Geocoding</text>
+  <text x="507" y="609" text-anchor="middle" fill="#64748b" font-size="9">Street View imagery</text>
+  <text x="507" y="623" text-anchor="middle" fill="#64748b" font-size="9">Local installers</text>
+
+  <rect x="588" y="517" width="138" height="120" rx="5" fill="rgba(168,85,247,0.08)" stroke="#a855f7" stroke-width="0.8"/>
+  <text x="657" y="534" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="600">Data + Search</text>
+  <text x="657" y="551" text-anchor="middle" fill="#94a3b8" font-size="9">Document AI</text>
+  <text x="657" y="565" text-anchor="middle" fill="#64748b" font-size="9">PDF OCR + extract</text>
+  <text x="657" y="579" text-anchor="middle" fill="#64748b" font-size="9">Electricity bills</text>
+  <text x="657" y="595" text-anchor="middle" fill="#94a3b8" font-size="9">Custom Search API</text>
+  <text x="657" y="609" text-anchor="middle" fill="#64748b" font-size="9">Live pricing data</text>
+  <text x="657" y="623" text-anchor="middle" fill="#64748b" font-size="9">State incentives</text>
+
+  <rect x="738" y="517" width="144" height="120" rx="5" fill="rgba(168,85,247,0.08)" stroke="#a855f7" stroke-width="0.8"/>
+  <text x="810" y="534" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="600">Infra + Email</text>
+  <text x="810" y="551" text-anchor="middle" fill="#94a3b8" font-size="9">Secret Manager</text>
+  <text x="810" y="565" text-anchor="middle" fill="#64748b" font-size="9">API keys + OAuth</text>
+  <text x="810" y="579" text-anchor="middle" fill="#64748b" font-size="9">token at runtime</text>
+  <text x="810" y="595" text-anchor="middle" fill="#94a3b8" font-size="9">Gmail API</text>
+  <text x="810" y="609" text-anchor="middle" fill="#64748b" font-size="9">OAuth RFP emails</text>
+  <text x="810" y="623" text-anchor="middle" fill="#64748b" font-size="9">to installers</text>
+
+  <!-- Legend -->
+  <rect x="60" y="660" width="840" height="16" rx="4" fill="rgba(255,255,255,0.03)"/>
+  <line x1="80" y1="668" x2="110" y2="668" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="116" y="672" fill="#94a3b8" font-size="9">WebSocket (audio + JSON)</text>
+  <line x1="230" y1="668" x2="260" y2="668" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="266" y="672" fill="#94a3b8" font-size="9">Vertex AI calls</text>
+  <line x1="370" y1="668" x2="400" y2="668" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="406" y="672" fill="#94a3b8" font-size="9">Google Cloud API calls</text>
+  <text x="880" y="672" text-anchor="end" fill="#334155" font-size="9">Prometheus · Gemini Live Agent Challenge</text>
+</svg>
