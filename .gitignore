@@ -30,6 +30,18 @@ build/
 # Session memory (local user data — not for version control)
 prometheus_memory.json
 
+# Gmail OAuth — never commit these
+app/credentials.json
+app/token.pickle
+
+# Terraform — state files contain sensitive data, never commit
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfvars
+terraform/*.tfvars.json
+# Note: terraform/.terraform.lock.hcl SHOULD be committed (locks provider versions)
+
 # OS / IDE
 .DS_Store
 Thumbs.db
