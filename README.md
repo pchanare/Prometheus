@@ -1,6 +1,6 @@
-# Prometheus — AI Solar Advisor
+# Prometheus - AI Solar Advisor
 
-> A real-time multimodal AI agent that guides homeowners through every step of going solar — from rooftop analysis and financial modelling to photorealistic mockups and installer quote requests — using voice, vision, and live Google data.
+> A real-time multimodal AI agent that guides homeowners through every step of going solar - from rooftop analysis and financial modelling to photorealistic mockups and installer quote requests - using voice, vision, and live Google data.
 
 ---
 
@@ -8,11 +8,11 @@
 
 Prometheus is a **Live Agent** built on the Gemini Live API and Google ADK. Users speak naturally with it (hands-free, interruptible) while it:
 
-- **Analyses their roof** via the Google Solar API — panels, annual production, payback period, federal + state incentives
-- **Models outdoor alternatives** — solar canopies and ground-mount systems with full financial breakdowns
+- **Analyses their roof** via the Google Solar API - panels, annual production, payback period, federal + state incentives
+- **Models outdoor alternatives** - solar canopies and ground-mount systems with full financial breakdowns
 - **Generates photorealistic mockups** of panels on the user's actual property using Imagen 3 / Gemini image models
 - **Accepts camera and photo input** so users can show their outdoor space for spatial analysis
-- **Parses uploaded documents** — electricity bills, HOA rules, roof inspection reports — via Document AI
+- **Parses uploaded documents** - electricity bills, HOA rules, roof inspection reports - via Document AI
 - **Finds local installers** via Google Maps and sends personalised RFP emails via Gmail
 
 All tool activity is narrated with real-time step-by-step status messages. Results appear as structured cards in the chat window while the agent voices a spoken summary.
@@ -53,7 +53,7 @@ See `architecture.svg` for the full system diagram.
   - Google Solar API
   - Maps JavaScript API + Geocoding API
   - Google Custom Search API
-  - Document AI API (optional — for PDF parsing)
+  - Document AI API (optional - for PDF parsing)
   - Gmail API (for RFP emails)
   - Secret Manager API
   - Cloud Run API + Artifact Registry API
@@ -118,7 +118,7 @@ cd app
 python auth_test.py
 ```
 
-This opens a browser window — log in with your Gmail account and grant access. It writes `token.pickle` to the `app/` directory.
+This opens a browser window - log in with your Gmail account and grant access. It writes `token.pickle` to the `app/` directory.
 
 ### 7. Run the server
 
@@ -133,9 +133,9 @@ Open your browser at **http://localhost:8080**
 
 ## Cloud Deployment
 
-Deployment is fully automated via a CI/CD pipeline — every `git push origin main` builds and deploys automatically. The steps below are **one-time setup only**.
+Deployment is fully automated via a CI/CD pipeline - every `git push origin main` builds and deploys automatically. The steps below are **one-time setup only**.
 
-### Step 1 — Provision infrastructure (Terraform)
+### Step 1 - Provision infrastructure (Terraform)
 
 Run once in Google Cloud Shell (Terraform is pre-installed):
 
@@ -148,7 +148,7 @@ terraform apply   # type 'yes' when prompted
 
 This creates the Cloud Run service, Service Account, IAM roles, and Artifact Registry repository.
 
-### Step 2 — Store secrets in Secret Manager
+### Step 2 - Store secrets in Secret Manager
 
 ```bash
 # Fix Windows line endings if running locally
@@ -169,7 +169,7 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --role="roles/secretmanager.secretAccessor"
 ```
 
-### Step 3 — Connect GitHub → Cloud Build (one-time, 5 minutes)
+### Step 3 - Connect GitHub → Cloud Build (one-time, 5 minutes)
 
 1. Go to [console.cloud.google.com/cloud-build/triggers](https://console.cloud.google.com/cloud-build/triggers)
 2. Click **Connect Repository** → select **GitHub**
@@ -180,13 +180,13 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
    - Configuration: **Cloud Build configuration file** → `cloudbuild.yaml`
 5. Click **Save**
 
-### Step 4 — Deploy
+### Step 4 - Deploy
 
 ```bash
 git push origin main
 ```
 
-That's it. Every push to `main` automatically builds a fresh Docker image and deploys a new Cloud Run revision — zero manual steps required.
+That's it. Every push to `main` automatically builds a fresh Docker image and deploys a new Cloud Run revision - zero manual steps required.
 
 > **Manual deploy (optional fallback):** If you need to deploy without a git push, run `bash deploy.sh` from Google Cloud Shell.
 
@@ -208,9 +208,9 @@ prometheus-agent/
 │   ├── find_installers.py      # Google Maps local installer search
 │   ├── rfp_generator.py        # Personalised RFP email generation
 │   ├── send_rfp_email.py       # Gmail API sender (OAuth via Secret Manager)
-│   ├── image_analysis.py       # Gemini vision — outdoor space analysis
+│   ├── image_analysis.py       # Gemini vision - outdoor space analysis
 │   ├── search_tool.py          # Google Custom Search web tool
-│   ├── session_memory.py       # Persistent session memory — GCS-backed on Cloud Run, local file in dev
+│   ├── session_memory.py       # Persistent session memory - GCS-backed on Cloud Run, local file in dev
 │   ├── status_channel.py       # Real-time status push to browser
 │   └── static/
 │       └── index.html          # Single-page frontend (voice UI + chat)
@@ -227,38 +227,38 @@ prometheus-agent/
 
 ## Technologies Used
 
-- **[Google ADK](https://google.github.io/adk-docs/)** — Agent orchestration, tool callbacks, session management
-- **[Gemini Live API](https://ai.google.dev/gemini-api/docs/live)** — Real-time bidirectional audio (`gemini-live-2.5-flash-native-audio`)
-- **Gemini image models** — `gemini-3.1-flash-image-preview` for solar mockup generation
-- **Imagen 3** — `imagen-3.0-generate-001` fallback for photorealistic mockups
-- **Google Solar API** — Rooftop solar potential, panel counts, energy production estimates
-- **Google Maps Platform** — Geocoding, Street View imagery, Places for local installers
-- **Google Document AI** — OCR and structured extraction from uploaded PDFs
-- **Google Custom Search API** — Live web search for pricing and incentives
-- **Gmail API** — OAuth-authenticated RFP email delivery
-- **Google Cloud Run** — Serverless container hosting
-- **Google Secret Manager** — Runtime secret injection (API keys, OAuth tokens)
-- **Google Artifact Registry** — Docker image storage
-- **FastAPI + WebSocket** — Backend server and real-time browser communication
+- **[Google ADK](https://google.github.io/adk-docs/)** - Agent orchestration, tool callbacks, session management
+- **[Gemini Live API](https://ai.google.dev/gemini-api/docs/live)** - Real-time bidirectional audio (`gemini-live-2.5-flash-native-audio`)
+- **Gemini image models** - `gemini-3.1-flash-image-preview` for solar mockup generation
+- **Imagen 3** - `imagen-3.0-generate-001` fallback for photorealistic mockups
+- **Google Solar API** - Rooftop solar potential, panel counts, energy production estimates
+- **Google Maps Platform** - Geocoding, Street View imagery, Places for local installers
+- **Google Document AI** - OCR and structured extraction from uploaded PDFs
+- **Google Custom Search API** - Live web search for pricing and incentives
+- **Gmail API** - OAuth-authenticated RFP email delivery
+- **Google Cloud Run** - Serverless container hosting
+- **Google Secret Manager** - Runtime secret injection (API keys, OAuth tokens)
+- **Google Artifact Registry** - Docker image storage
+- **FastAPI + WebSocket** - Backend server and real-time browser communication
 
 ---
 
 ## Key Features
 
-- 🎙️ **Real-time voice** — Interruptible conversation via Gemini Live native audio
-- 📷 **Camera + image input** — Point at your outdoor space for AI spatial analysis
-- ☀️ **Live solar data** — Real rooftop data from Google Solar API for your exact address
-- 🏗️ **AI-generated mockups** — See what panels look like on your actual property
-- 📄 **Document upload** — Drop in your electricity bill; the agent reads it automatically
-- 📧 **Automated RFP emails** — Agent drafts and sends personalised quote requests to installers
-- 💰 **Full financial breakdown** — Cost, savings, payback, ITC, state incentives in one card
-- 🔄 **Session memory** — Remembers your address, bill, and name across reconnects
+- 🎙️ **Real-time voice** - Interruptible conversation via Gemini Live native audio
+- 📷 **Camera + image input** - Point at your outdoor space for AI spatial analysis
+- ☀️ **Live solar data** - Real rooftop data from Google Solar API for your exact address
+- 🏗️ **AI-generated mockups** - See what panels look like on your actual property
+- 📄 **Document upload** - Drop in your electricity bill; the agent reads it automatically
+- 📧 **Automated RFP emails** - Agent drafts and sends personalised quote requests to installers
+- 💰 **Full financial breakdown** - Cost, savings, payback, ITC, state incentives in one card
+- 🔄 **Session memory** - Remembers your address, bill, and name across reconnects
 
 ---
 
 ## Infrastructure as Code (CI/CD Pipeline)
 
-The entire cloud infrastructure is defined in code — no manual console clicks required after the first-time secret setup.
+The entire cloud infrastructure is defined in code - no manual console clicks required after the first-time secret setup.
 
 ### How it works
 
@@ -271,11 +271,11 @@ git push origin main
                     ┌───────────┼───────────┐
                     ▼           ▼           ▼
                docker build   docker push  gcloud run deploy
-               (image)        (Artifact    (Cloud Run —
+               (image)        (Artifact    (Cloud Run -
                                Registry)    new revision)
 ```
 
-Every `git push` to `main` automatically builds a fresh Docker image tagged with the commit SHA and deploys it to Cloud Run — zero manual steps.
+Every `git push` to `main` automatically builds a fresh Docker image tagged with the commit SHA and deploys it to Cloud Run - zero manual steps.
 
 ### Files
 
@@ -290,7 +290,7 @@ Every `git push` to `main` automatically builds a fresh Docker image tagged with
 
 ```bash
 # Install Terraform (if not already installed)
-# Windows:  winget install HashiCorp.Terraform  (or use Google Cloud Shell — pre-installed)
+# Windows:  winget install HashiCorp.Terraform  (or use Google Cloud Shell - pre-installed)
 # macOS:    brew install terraform
 # Linux:    https://developer.hashicorp.com/terraform/install
 
@@ -322,4 +322,4 @@ Cloud Build picks it up automatically, builds the image, and rolls out a new Clo
 
 ## Hackathon
 
-Built for the **Gemini Live Agent Challenge** — Category: **Live Agents 🗣️**
+Built for the **Gemini Live Agent Challenge** - Category: **Live Agents 🗣️**
