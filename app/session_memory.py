@@ -163,6 +163,8 @@ def build_injection() -> str:
 
     lines = ["── SESSION MEMORY (identity facts from your previous conversation) ─────────",
              "Use address and name without asking again.",
+             "IMPORTANT: Do NOT open with a welcome-back greeting. The user has already",
+             "been greeted. Respond directly and naturally to their first message.",
              "IMPORTANT: Always ask the user for their monthly electricity bill — never",
              "assume it from a previous session. Bills change and the bill is the primary",
              "input that sizes the entire solar system.",

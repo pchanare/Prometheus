@@ -10,6 +10,29 @@
 html, body { height: 100%; overflow: hidden; }
 
 :root {
+  /* Right panel — blue-navy tinted light, same hue family as left panel */
+  --bg:           #e6ecf8;
+  --bg-panel:     #eef3ff;
+  --surface:      #e0e8f5;
+  --surface-2:    #d4dff0;
+  --border:       rgba(100,130,200,0.18);
+  --border-hi:    rgba(180,83,9,0.38);
+  --amber:        #d97706;
+  --amber-bright: #b45309;
+  --amber-dim:    rgba(217,119,6,0.11);
+  --violet:       #6d28d9;
+  --violet-dim:   rgba(109,40,217,0.12);
+  --text:         #1a2540;
+  --text-dim:     #3d5275;
+  --text-muted:   #7a90b8;
+  --user-bg:      #fef6e4;
+  --model-bg:     #eef2fb;
+  --radius:       16px;
+  --t:            0.22s ease;
+}
+
+/* Left panel stays dark — orb blobs need dark bg for mix-blend-mode:screen */
+#left {
   --bg:           #141c2e;
   --bg-panel:     #1a2438;
   --surface:      #1f2d45;
@@ -24,10 +47,6 @@ html, body { height: 100%; overflow: hidden; }
   --text:         #e8eeff;
   --text-dim:     #8fa4c8;
   --text-muted:   #566480;
-  --user-bg:      #1e2e4a;
-  --model-bg:     #172035;
-  --radius:       16px;
-  --t:            0.22s ease;
 }
 
 body {
@@ -50,7 +69,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 24px 24px 28px;
-  border-right: 1px solid var(--border);
+  border-right: 2px solid rgba(245,158,11,0.35);
   background: linear-gradient(160deg, #1a2640 0%, #131c30 100%);
   position: relative;
   overflow: hidden;
@@ -201,44 +220,44 @@ body {
 
 /* Amber — primary brand colour */
 .orb-blob-1 {
-  width: 72px; height: 72px;
-  margin: -36px 0 0 -36px;
-  background: radial-gradient(circle at 38% 36%, #fde68a 0%, #f59e0b 45%, transparent 78%);
-  filter: blur(9px);
+  width: 68px; height: 68px;
+  margin: -34px 0 0 -34px;
+  background: radial-gradient(circle at 38% 36%, #fcd34d 0%, #f59e0b 52%, transparent 76%);
+  filter: blur(3px);
   animation: blob-a 3.4s ease-in-out infinite;
 }
 /* Violet — secondary accent */
 .orb-blob-2 {
-  width: 66px; height: 66px;
-  margin: -33px 0 0 -33px;
-  background: radial-gradient(circle at 40% 38%, #ddd6fe 0%, #8b5cf6 46%, transparent 78%);
-  filter: blur(10px);
+  width: 62px; height: 62px;
+  margin: -31px 0 0 -31px;
+  background: radial-gradient(circle at 40% 38%, #c4b5fd 0%, #7c3aed 52%, transparent 76%);
+  filter: blur(4px);
   animation: blob-b 4.0s ease-in-out infinite;
 }
 /* Teal — third accent */
 .orb-blob-3 {
-  width: 60px; height: 60px;
-  margin: -30px 0 0 -30px;
-  background: radial-gradient(circle at 42% 40%, #99f6e4 0%, #14b8a6 46%, transparent 78%);
-  filter: blur(10px);
+  width: 56px; height: 56px;
+  margin: -28px 0 0 -28px;
+  background: radial-gradient(circle at 42% 40%, #5eead4 0%, #0d9488 52%, transparent 76%);
+  filter: blur(4px);
   animation: blob-c 4.8s ease-in-out infinite;
 }
 
-/* Gentle triangular orbit paths */
+/* Wider triangular orbit paths — blobs spend more time visibly separated */
 @keyframes blob-a {
-  0%, 100% { transform: translate(  0px, -19px); }
-  33%       { transform: translate( 17px,  10px); }
-  66%       { transform: translate(-15px,  12px); }
+  0%, 100% { transform: translate(  0px, -30px); }
+  33%       { transform: translate( 26px,  15px); }
+  66%       { transform: translate(-24px,  17px); }
 }
 @keyframes blob-b {
-  0%, 100% { transform: translate(-16px,  11px); }
-  33%       { transform: translate(  4px, -21px); }
-  66%       { transform: translate( 15px,   9px); }
+  0%, 100% { transform: translate(-25px,  15px); }
+  33%       { transform: translate(  5px, -32px); }
+  66%       { transform: translate( 22px,  13px); }
 }
 @keyframes blob-c {
-  0%, 100% { transform: translate( 14px,   9px); }
-  33%       { transform: translate(-16px,   6px); }
-  66%       { transform: translate(  4px, -19px); }
+  0%, 100% { transform: translate( 22px,  13px); }
+  33%       { transform: translate(-24px,   8px); }
+  66%       { transform: translate(  4px, -28px); }
 }
 
 /* Mic icon overlay */
@@ -276,9 +295,9 @@ body.listening .orb-mic     { opacity: 1; }
 body.listening .orb-bloom   { animation-duration: 1.5s; }
 
 /* PROCESSING — violet blob leads, others soften */
-body.processing .orb-blob-1 { opacity: 0.50; filter: blur(13px); }
-body.processing .orb-blob-2 { opacity: 1;    filter: blur(8px);  animation-duration: 1.8s; }
-body.processing .orb-blob-3 { opacity: 0.60; filter: blur(13px); animation-duration: 2.2s; }
+body.processing .orb-blob-1 { opacity: 0.50; filter: blur(5px); }
+body.processing .orb-blob-2 { opacity: 1;    filter: blur(3px);  animation-duration: 1.8s; }
+body.processing .orb-blob-3 { opacity: 0.60; filter: blur(5px);  animation-duration: 2.2s; }
 body.processing .orb-ring-1 { border-color: rgba(167,139,250,0.35); animation-duration: 2.5s; }
 body.processing .orb-ring-2 { border-color: rgba(167,139,250,0.14); animation-duration: 3.5s; }
 body.processing .orb-bloom  { background: radial-gradient(circle, rgba(124,58,237,0.09) 0%, transparent 70%); }
@@ -366,21 +385,37 @@ body.speaking   #status { color: var(--amber); }
 .mic-hint {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(251,191,36,0.55);
+  color: rgba(251,191,36,0.82);
   letter-spacing: 0.02em;
   text-align: center;
   line-height: 1.4;
   transition: color var(--t);
   pointer-events: none;
 }
-body.listening .mic-hint { color: rgba(251,191,36,0.80); }
+body.listening .mic-hint { color: rgba(251,191,36,1.0); }
 
 /* Secondary controls */
 .ctrl-row {
   display: flex;
-  gap: 10px;
-  align-items: center;
+  gap: 14px;
+  align-items: flex-end;
 }
+
+.ctrl-btn-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.ctrl-btn-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(251,191,36,0.55);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  transition: color var(--t);
+}
+.ctrl-btn-wrap:hover .ctrl-btn-label { color: rgba(251,191,36,0.90); }
 
 .ctrl-btn {
   width: 44px;
@@ -418,6 +453,7 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   flex-direction: column;
   background: var(--bg-panel);
   overflow: hidden;
+  border-top: 2px solid rgba(245,158,11,0.35);
 }
 
 /* ── Right Header ───────────────────────────────────────── */
@@ -455,27 +491,31 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
 
 #model-badge {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 4px 10px;
+  opacity: 0.55;
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
   border-radius: 6px;
   white-space: nowrap;
+  transition: opacity var(--t);
 }
+#model-badge:hover { opacity: 0.9; }
 
 #clear-btn {
-  border: 1px solid var(--border);
+  border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 11px;
-  padding: 5px 11px;
+  font-size: 10px;
+  opacity: 0.50;
+  padding: 4px 8px;
   border-radius: 6px;
   cursor: pointer;
-  transition: color var(--t), border-color var(--t);
+  transition: color var(--t), opacity var(--t);
   white-space: nowrap;
 }
-#clear-btn:hover { color: var(--text-dim); border-color: var(--border-hi); }
+#clear-btn:hover { opacity: 1; color: #dc2626; }
 
 /* ── Transcript ─────────────────────────────────────────── */
 #transcript {
@@ -489,7 +529,7 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
 }
 #transcript::-webkit-scrollbar { width: 3px; }
 #transcript::-webkit-scrollbar-track { background: transparent; }
-#transcript::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); border-radius: 2px; }
+#transcript::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 2px; }
 
 /* ── Messages ───────────────────────────────────────────── */
 .msg {
@@ -505,17 +545,19 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
 
 .msg.user {
   align-self: flex-end;
-  background: var(--user-bg);
-  border: 1px solid rgba(251,191,36,0.11);
+  background: linear-gradient(135deg, #fef6e4, #fdecc8);
+  border: 1px solid rgba(180,83,9,0.18);
   border-radius: 18px 18px 4px 18px;
   padding: 11px 15px;
+  box-shadow: 0 1px 4px rgba(180,83,9,0.08);
 }
 .msg.model {
   align-self: flex-start;
-  background: var(--model-bg);
-  border: 1px solid rgba(255,255,255,0.05);
+  background: linear-gradient(135deg, #f5f8ff, #eef2fb);
+  border: 1px solid rgba(100,130,200,0.20);
   border-radius: 4px 18px 18px 18px;
   padding: 11px 15px;
+  box-shadow: 0 1px 4px rgba(30,50,100,0.06);
 }
 
 .role {
@@ -525,8 +567,8 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   text-transform: uppercase;
   margin-bottom: 5px;
 }
-.msg.user  .role { color: rgba(251,191,36,0.45); }
-.msg.model .role { color: rgba(167,139,250,0.45); }
+.msg.user  .role { color: rgba(180,83,9,0.60); }
+.msg.model .role { color: rgba(109,40,217,0.55); }
 
 /* ── Typing indicator ───────────────────────────────────── */
 #typing {
@@ -536,7 +578,7 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   align-items: center;
   padding: 12px 16px;
   background: var(--model-bg);
-  border: 1px solid rgba(255,255,255,0.05);
+  border: 1px solid rgba(0,0,0,0.07);
   border-radius: 4px 18px 18px 18px;
 }
 #typing.visible { display: flex; }
@@ -558,7 +600,7 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
 /* ── Input bar ──────────────────────────────────────────── */
 .input-bar {
   padding: 12px 18px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(100,130,200,0.15);
   background: var(--bg-panel);
   display: flex;
   gap: 9px;
@@ -568,8 +610,8 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
 
 #text-input {
   flex: 1;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: #ffffff;
+  border: 1px solid rgba(100,130,200,0.25);
   border-radius: 12px;
   color: var(--text);
   font-size: 14px;
@@ -580,9 +622,13 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   line-height: 1.5;
   min-height: 42px;
   max-height: 116px;
-  transition: border-color var(--t);
+  transition: border-color var(--t), box-shadow var(--t);
+  box-shadow: 0 1px 4px rgba(30,50,100,0.06);
 }
-#text-input:focus { border-color: var(--border-hi); }
+#text-input:focus {
+  border-color: rgba(180,83,9,0.45);
+  box-shadow: 0 0 0 3px rgba(217,119,6,0.10);
+}
 #text-input::placeholder { color: var(--text-muted); }
 
 #send-btn {
@@ -786,20 +832,32 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
    WELCOME CARD
 ══════════════════════════════════════════════════════════ */
 .welcome-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: linear-gradient(160deg, #f5f8ff 0%, #eef2fb 100%);
+  border: 1px solid rgba(100,130,200,0.22);
+  border-top: 2px solid rgba(245,158,11,0.40);
   border-radius: 18px;
-  padding: 24px 22px;
-  max-width: 440px;
+  padding: 26px 24px;
+  max-width: 580px;
+  width: 100%;
   animation: msgIn 0.4s ease;
+  box-shadow: 0 4px 24px rgba(30,50,120,0.07);
 }
 
+.welcome-hero {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  margin-bottom: 4px;
+}
 .welcome-title {
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--amber-bright);
-  letter-spacing: 0.02em;
-  margin-bottom: 3px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
 }
 .welcome-subtitle {
   font-size: 11px;
@@ -818,13 +876,19 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   gap: 8px;
 }
 .welcome-box {
-  background: var(--model-bg);
-  border: 1px solid var(--border);
+  background: #ffffff;
+  border: 1px solid rgba(100,130,200,0.18);
+  border-top: 2px solid rgba(245,158,11,0.38);
   border-radius: 10px;
   padding: 11px 13px;
-  transition: border-color var(--t);
+  transition: border-color var(--t), box-shadow var(--t);
+  box-shadow: 0 1px 4px rgba(30,50,100,0.05);
 }
-.welcome-box:hover { border-color: var(--border-hi); }
+.welcome-box:hover {
+  border-color: rgba(180,83,9,0.35);
+  border-top-color: rgba(245,158,11,0.70);
+  box-shadow: 0 2px 8px rgba(180,83,9,0.10);
+}
 .welcome-box-title {
   font-size: 10px;
   font-weight: 700;
@@ -853,11 +917,13 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   color: var(--text-dim);
 }
 .welcome-cta {
-  margin-top: 14px;
-  font-size: 13px;
-  color: var(--amber);
-  font-weight: 500;
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--amber-bright);
   text-align: center;
+  letter-spacing: 0.01em;
+  padding: 10px 0 2px;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -948,10 +1014,13 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
 ══════════════════════════════════════════════════════════ */
 .solar-card {
   margin-top: 10px;
-  border: 1px solid var(--border-hi);
+  border: 1px solid rgba(100,130,200,0.20);
+  border-top: 2px solid rgba(245,158,11,0.45);
   border-radius: 12px;
   overflow: hidden;
   font-size: 13px;
+  background: #ffffff;
+  box-shadow: 0 2px 12px rgba(30,50,120,0.07);
 }
 .solar-card-header {
   background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(245,158,11,0.06));
@@ -993,7 +1062,7 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   padding: 4px 14px;
   gap: 12px;
 }
-.solar-row:hover { background: rgba(255,255,255,0.02); }
+.solar-row:hover { background: rgba(0,0,0,0.03); }
 .solar-row-key {
   color: var(--text-dim);
   flex: 1;
@@ -1006,8 +1075,8 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   text-align: right;
 }
 .solar-row-val.highlight { color: var(--amber-bright); }
-.solar-row-val.green     { color: #4ade80; }
-.solar-row-val.red       { color: #f87171; }
+.solar-row-val.green     { color: #16a34a; }
+.solar-row-val.red       { color: #dc2626; }
 .solar-divider-row {
   border-top: 1px solid var(--border-hi);
   margin: 2px 14px 0;
@@ -1088,9 +1157,9 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
   }
   .orb-shell  { width: 64px; height: 64px; flex-shrink: 0; }
   .orb-blobs  { width: 46px; height: 46px; }
-  .orb-blob-1 { width: 30px; height: 30px; margin: -15px 0 0 -15px; filter: blur(5px); }
-  .orb-blob-2 { width: 26px; height: 26px; margin: -13px 0 0 -13px; filter: blur(6px); }
-  .orb-blob-3 { width: 22px; height: 22px; margin: -11px 0 0 -11px; filter: blur(6px); }
+  .orb-blob-1 { width: 30px; height: 30px; margin: -15px 0 0 -15px; filter: blur(2px); }
+  .orb-blob-2 { width: 26px; height: 26px; margin: -13px 0 0 -13px; filter: blur(2px); }
+  .orb-blob-3 { width: 22px; height: 22px; margin: -11px 0 0 -11px; filter: blur(2px); }
   .orb-ring-1, .orb-ring-2, .orb-bloom { display: none; }
 
   .status-area {
@@ -1220,7 +1289,7 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
 }
 .solar-row-val.installer-email {
   font-size: 11px;
-  color: rgba(56,189,248,0.85);
+  color: #0369a1;
   font-weight: 500;
   white-space: normal;
   word-break: break-all;
@@ -1291,25 +1360,34 @@ body.listening .mic-hint { color: rgba(251,191,36,0.80); }
     <div class="ctrl-row">
 
       <!-- Camera -->
-      <button class="ctrl-btn" id="camera-btn" title="Camera">
-        <svg viewBox="0 0 24 24">
-          <path d="M9 3L7.17 5H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V7a2 2 0 00-2-2h-3.17L15 3H9zm3 15a5 5 0 110-10 5 5 0 010 10zm0-8a3 3 0 100 6 3 3 0 000-6z"/>
-        </svg>
-      </button>
+      <div class="ctrl-btn-wrap">
+        <button class="ctrl-btn" id="camera-btn" title="Camera">
+          <svg viewBox="0 0 24 24">
+            <path d="M9 3L7.17 5H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V7a2 2 0 00-2-2h-3.17L15 3H9zm3 15a5 5 0 110-10 5 5 0 010 10zm0-8a3 3 0 100 6 3 3 0 000-6z"/>
+          </svg>
+        </button>
+        <span class="ctrl-btn-label">Camera</span>
+      </div>
 
       <!-- Image upload -->
-      <button class="ctrl-btn" id="img-btn" title="Upload image">
-        <svg viewBox="0 0 24 24">
-          <path d="M21 19V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-        </svg>
-      </button>
+      <div class="ctrl-btn-wrap">
+        <button class="ctrl-btn" id="img-btn" title="Upload image">
+          <svg viewBox="0 0 24 24">
+            <path d="M21 19V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+          </svg>
+        </button>
+        <span class="ctrl-btn-label">Photo</span>
+      </div>
 
       <!-- PDF upload -->
-      <button class="ctrl-btn" id="pdf-btn" title="Upload electricity bill (PDF)">
-        <svg viewBox="0 0 24 24">
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-        </svg>
-      </button>
+      <div class="ctrl-btn-wrap">
+        <button class="ctrl-btn" id="pdf-btn" title="Upload electricity bill (PDF)">
+          <svg viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+          </svg>
+        </button>
+        <span class="ctrl-btn-label">Document</span>
+      </div>
 
     </div>
   </div>
@@ -1446,12 +1524,12 @@ document.addEventListener('touchend', _unlockAudio, { once: true });
 
 // ── Steps completion tracking ────────────────────────────
 const TOOL_LABELS = {
-  run_solar_analysis:       { running: 'Analysing solar data — please wait 15–30 s…', done: 'Solar data fetched' },
+  run_solar_analysis:       { running: 'Analysing solar data - please wait 15-30 s…', done: 'Solar data fetched' },
   calculate_outdoor_solar:  { running: 'Calculating outdoor system costs…',            done: 'Outdoor system costs ready' },
   calculate_combined_solar: { running: 'Calculating combined system costs…',           done: 'Combined system costs ready' },
-  send_all_rfps:            { running: 'Sending RFP emails — please wait…',            done: 'RFP emails sent' },
+  send_all_rfps:            { running: 'Sending RFP emails - please wait…',            done: 'RFP emails sent' },
   find_local_installers:    { running: 'Finding local installers…',                    done: 'Local installers found' },
-  generate_solar_mockup:    { running: 'Generating mockup — please wait 15–30 s…',     done: 'Solar mockup generated' },
+  generate_solar_mockup:    { running: 'Generating mockup - please wait 15-30 s…',     done: 'Solar mockup generated' },
   analyze_space_for_solar:  { running: 'Analysing your space…',                        done: 'Space analysed' },
 };
 let _completedSteps = [];   // { tool, runningLabel, doneLabel, done }
@@ -2479,9 +2557,9 @@ function showWelcome() {
   const features = [
     { title: 'Solar Analysis',      desc: 'Roof area, panel count, sunshine hours & upfront cost estimate for any address.' },
     { title: 'Tax & Incentives',    desc: 'Federal ITC (30%) plus state-level credits calculated automatically.' },
-    { title: 'AI Mockups',          desc: 'Photorealistic image of solar panels on your property — rooftop, canopy or ground mount.' },
+    { title: 'AI Mockups',          desc: 'Photorealistic image of solar panels on your property - rooftop, canopy or ground mount.' },
     { title: 'Space Analysis',      desc: 'Upload a photo of your outdoor space to evaluate ground-mount solar potential.' },
-    { title: 'Document Extraction', desc: 'Upload electricity bills, installer quotes or roof reports — data extracted instantly.' },
+    { title: 'Document Extraction', desc: 'Upload electricity bills, installer quotes or roof reports - data extracted instantly.' },
     { title: 'Installer Quotes',    desc: 'Discover local solar companies and send personalised RFP emails automatically.' },
   ];
 
@@ -2494,6 +2572,7 @@ function showWelcome() {
   const card = document.createElement('div');
   card.className = 'welcome-card';
   card.innerHTML = `
+    <div class="welcome-hero">Your Home's Solar Potential, in Minutes!</div>
     <div class="welcome-title">Prometheus Solar Intelligence</div>
     <div class="welcome-subtitle">Powered by Gemini Live &middot; Vertex AI</div>
     <hr class="welcome-divider"/>
@@ -2506,7 +2585,7 @@ function showWelcome() {
       <span class="welcome-chip">Image</span>
       <span class="welcome-chip">PDF</span>
     </div>
-    <div class="welcome-cta">To begin, share a property address.</div>
+    <div class="welcome-cta">→ Share a property address to begin</div>
   `;
   transcript.insertBefore(card, typing);
 }
