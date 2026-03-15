@@ -26,6 +26,7 @@ resource "google_project_service" "apis" {
     "solar.googleapis.com",
     "documentai.googleapis.com",
     "gmail.googleapis.com",
+    "storage.googleapis.com",
   ])
   service            = each.key
   disable_on_destroy = false
@@ -70,6 +71,29 @@ resource "google_project_iam_member" "sa_docai" {
   project = var.project_id
   role    = "roles/documentai.apiUser"
   member  = "serviceAccount:${google_service_account.prometheus_sa.email}"
+}
+
+# ─────────────────────────────────────────────────────────────────
+# GCS bucket — persistent session memory (survives container restarts)
+# ─────────────────────────────────────────────────────────────────
+resource "google_storage_bucket" "memory_bucket" {
+  name                        = "${var.project_id}-prometheus-memory"
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+
+  versioning {
+    enabled = false
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# IAM — allow the Cloud Run SA to read/write session memory objects
+resource "google_storage_bucket_iam_member" "sa_memory_bucket" {
+  bucket = google_storage_bucket.memory_bucket.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.prometheus_sa.email}"
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -173,6 +197,10 @@ resource "google_cloud_run_v2_service" "prometheus_agent" {
         name  = "SENDER_EMAIL"
         value = var.sender_email
       }
+      env {
+        name  = "MEMORY_BUCKET"
+        value = google_storage_bucket.memory_bucket.name
+      }
 
       # ── Secrets injected at runtime ──────────────────────────
       env {
@@ -228,6 +256,7 @@ resource "google_cloud_run_v2_service" "prometheus_agent" {
     google_service_account.prometheus_sa,
     google_project_iam_member.sa_vertex,
     google_project_iam_member.sa_secrets,
+    google_storage_bucket_iam_member.sa_memory_bucket,
   ]
 }
 

@@ -11,7 +11,9 @@ import logging
 import os
 import sys
 import tempfile
+import time
 import uuid
+from contextlib import asynccontextmanager
 
 import uvicorn
 from dotenv import load_dotenv
@@ -281,9 +283,64 @@ def make_runner(mode: str, memory_note: str = "") -> Runner:
 
 
 # ---------------------------------------------------------------------------
+# TTL-based session pruning
+# ---------------------------------------------------------------------------
+_SESSION_TTL_SECONDS = 30 * 60          # 30 minutes
+_PRUNE_INTERVAL_SECONDS = 5 * 60        # check every 5 minutes
+
+# Maps session_id → (user_id, created_at_epoch)
+_session_registry: dict[str, tuple[str, float]] = {}
+
+
+def _register_session(session_id: str, user_id: str) -> None:
+    """Record a newly created session so the pruner can evict it after TTL."""
+    _session_registry[session_id] = (user_id, time.monotonic())
+    log.info("session_registry: registered %s  total=%d", session_id[:8], len(_session_registry))
+
+
+async def _prune_sessions() -> None:
+    """Background task: delete ADK sessions older than _SESSION_TTL_SECONDS."""
+    while True:
+        await asyncio.sleep(_PRUNE_INTERVAL_SECONDS)
+        now = time.monotonic()
+        expired = [
+            (sid, uid)
+            for sid, (uid, created) in list(_session_registry.items())
+            if now - created > _SESSION_TTL_SECONDS
+        ]
+        for sid, uid in expired:
+            try:
+                session_service.delete_session(
+                    app_name=APP_NAME, user_id=uid, session_id=sid
+                )
+            except Exception:
+                pass  # session may already be gone
+            _session_registry.pop(sid, None)
+            log.info("session_registry: pruned expired session %s", sid[:8])
+        if expired:
+            log.info("session_registry: pruned %d sessions  remaining=%d",
+                     len(expired), len(_session_registry))
+
+
+@asynccontextmanager
+async def _lifespan(app):  # noqa: ARG001
+    pruner = asyncio.create_task(_prune_sessions())
+    log.info("session_registry: TTL pruner started (TTL=%ds, interval=%ds)",
+             _SESSION_TTL_SECONDS, _PRUNE_INTERVAL_SECONDS)
+    try:
+        yield
+    finally:
+        pruner.cancel()
+        try:
+            await pruner
+        except asyncio.CancelledError:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
-app = FastAPI(title="Prometheus Solar AI")
+app = FastAPI(title="Prometheus Solar AI", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -410,6 +467,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
         session_service.create_session(
             app_name=APP_NAME, user_id=user_id, session_id=session_id
         )
+    _register_session(session_id, user_id)
 
     live_queue = LiveRequestQueue()
 
