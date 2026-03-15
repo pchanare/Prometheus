@@ -6,8 +6,14 @@ name, etc.) from tool responses and saves them to a JSON file next to this
 module.  On every new ADK session the stored facts are re-injected as a tiny
 [SESSION MEMORY] note so the model never has to ask the user to repeat info.
 
-Survives: context window resets, WebSocket reconnects, server restarts.
-Lost when: prometheus_memory.json is manually deleted.
+Storage backends:
+  • Cloud Run  — Google Cloud Storage (persists across container restarts/OOM)
+                 Requires env vars: K_SERVICE (set automatically by Cloud Run)
+                                    MEMORY_BUCKET (GCS bucket name)
+  • Local dev  — Local JSON file (prometheus_memory.json beside this module)
+
+Survives: context window resets, WebSocket reconnects, server restarts (GCS).
+Lost when: GCS object / local JSON file is manually deleted.
 """
 
 import json
@@ -16,6 +22,16 @@ import os
 from datetime import datetime
 
 log = logging.getLogger("prometheus.memory")
+
+# ---------------------------------------------------------------------------
+# Backend detection
+# ---------------------------------------------------------------------------
+
+# Cloud Run sets K_SERVICE automatically; MEMORY_BUCKET must be provided via
+# the Cloud Run env var (populated by Terraform).
+_ON_CLOUD_RUN = bool(os.environ.get("K_SERVICE"))
+_BUCKET_NAME  = os.environ.get("MEMORY_BUCKET", "")
+_GCS_OBJECT   = "prometheus_memory.json"
 
 _MEMORY_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "prometheus_memory.json"
@@ -26,11 +42,56 @@ _mem: dict = {}
 
 
 # ---------------------------------------------------------------------------
+# GCS helpers (only imported / used when on Cloud Run)
+# ---------------------------------------------------------------------------
+
+def _gcs_read() -> dict:
+    """Download and parse the memory JSON from GCS. Returns {} on any error."""
+    try:
+        from google.cloud import storage  # type: ignore
+        client = storage.Client()
+        blob = client.bucket(_BUCKET_NAME).blob(_GCS_OBJECT)
+        if blob.exists():
+            data = json.loads(blob.download_as_text(encoding="utf-8"))
+            log.info(
+                "session_memory: loaded %d facts from gs://%s/%s",
+                len(data), _BUCKET_NAME, _GCS_OBJECT,
+            )
+            return data
+        log.info("session_memory: gs://%s/%s not found — starting fresh", _BUCKET_NAME, _GCS_OBJECT)
+    except Exception as exc:
+        log.warning("session_memory: GCS read failed (%s) — starting fresh", exc)
+    return {}
+
+
+def _gcs_write() -> None:
+    """Serialise _mem to JSON and upload to GCS."""
+    try:
+        from google.cloud import storage  # type: ignore
+        client = storage.Client()
+        client.bucket(_BUCKET_NAME).blob(_GCS_OBJECT).upload_from_string(
+            json.dumps(_mem, indent=2),
+            content_type="application/json",
+        )
+        log.info(
+            "session_memory: saved %d facts to gs://%s/%s",
+            len(_mem), _BUCKET_NAME, _GCS_OBJECT,
+        )
+    except Exception as exc:
+        log.warning("session_memory: GCS write failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
 def _load() -> None:
     global _mem
+    if _ON_CLOUD_RUN and _BUCKET_NAME:
+        _mem = _gcs_read()
+        return
+
+    # Local fallback
     if os.path.exists(_MEMORY_FILE):
         try:
             with open(_MEMORY_FILE, "r", encoding="utf-8") as f:
@@ -44,6 +105,11 @@ def _load() -> None:
 
 
 def _save() -> None:
+    if _ON_CLOUD_RUN and _BUCKET_NAME:
+        _gcs_write()
+        return
+
+    # Local fallback
     try:
         with open(_MEMORY_FILE, "w", encoding="utf-8") as f:
             json.dump(_mem, f, indent=2)
