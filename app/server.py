@@ -66,14 +66,9 @@ except Exception as _mockup_err:
     def _pop_mockup_images():
         return []
 
-# Clear session memory on every server restart so stale facts from a previous
-# run never bleed into a fresh server process.
-try:
-    from session_memory import reset as _reset_mem_on_startup
-    _reset_mem_on_startup()
-    log.info("Session memory cleared on server startup")
-except Exception as _mem_startup_err:
-    log.warning("Could not reset session memory on startup: %s", _mem_startup_err)
+# Session memory is loaded on import (GCS on Cloud Run, local file in dev).
+# Do NOT reset here — GCS persistence is the whole point; facts survive restarts.
+# Memory is reset only when the user provides a new address (session_memory.reset()).
 
 # Status channel — async before/after tool callbacks send status messages
 # to the browser via WebSocket.  Because the callbacks are async they execute
@@ -717,10 +712,15 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                                     types.Part(
                                         text=(
                                             "I've just turned on my camera. "
-                                            "Please describe what you see in this space and give a quick "
-                                            "assessment of its solar potential. "
-                                            "Then invite me to take a clear photo and upload it to the chat "
-                                            "for a detailed solar analysis and mockup."
+                                            "Please look at this space and: "
+                                            "1) Identify whether it's a rooftop or house exterior, or an outdoor space "
+                                            "(backyard, patio, yard, open land, etc.). "
+                                            "2) Describe what you see and call out any shading sources or obstacles "
+                                            "(trees, chimneys, neighbouring structures, skylights) that would affect solar output. "
+                                            "3) Give a specific solar recommendation for this exact space — rooftop solar if "
+                                            "it's a roof, or canopy/ground-mount for outdoor spaces — and factor any visible "
+                                            "obstacles into your recommendation (e.g. shade from a tree reduces viable panel area). "
+                                            "4) Invite me to take a clear photo and upload it for a full detailed analysis."
                                         )
                                     ),
                                 ],
@@ -749,11 +749,15 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                             label = f"{user_label}\n[Image saved at: {tmp_path}]"
                         else:
                             label = (
-                                f"I just shared this image (saved at: {tmp_path}). "
-                                "Please describe what you see and how it relates to solar installation. "
-                                f"If it shows an outdoor space (backyard, garden, courtyard, etc.), "
-                                f"call analyze_space_for_solar with image_path=\"{tmp_path}\" "
-                                "and the appropriate space_type."
+                                f"I just uploaded this image (saved at: {tmp_path}). "
+                                "Look at what the image shows:\n"
+                                "- If it shows a ROOFTOP or house exterior: describe the roof, note any "
+                                "shading obstacles (trees, chimneys, skylights, neighbouring structures), "
+                                "and ask what they would like to do next (rooftop solar analysis or mockup).\n"
+                                f"- If it shows an OUTDOOR SPACE (backyard, garden, courtyard, patio, open land): "
+                                f"call analyze_space_for_solar with image_path=\"{tmp_path}\" and the "
+                                "appropriate space_type. Note any visible shading or obstacles in your spoken response.\n"
+                                "Always describe what you see before taking any action."
                             )
                         log.info("Capture label: %r", label[:80])
                         live_queue.send_content(
@@ -791,6 +795,28 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                             "Use all information above when answering the user's questions. "
                             "Do NOT ask the user for data that is already present here."
                         )
+
+                        # Persist any monthly bill found in the document to session memory
+                        # so future sessions can skip asking for it.
+                        try:
+                            from session_memory import update as _smem_update
+                            _BILL_KEYS = ("monthly cost", "average monthly bill",
+                                          "monthly bill", "monthly charge",
+                                          "monthly electricity", "monthly payment")
+                            for fact in key_facts:
+                                k = (fact.get("key") or "").lower().strip()
+                                v = str(fact.get("value") or "").replace("$", "").replace(",", "").strip()
+                                if any(bk in k for bk in _BILL_KEYS) and v:
+                                    try:
+                                        bill_val = float(v.split("/")[0].split(" ")[0])
+                                        if 10 < bill_val < 10000:
+                                            _smem_update(monthly_bill_usd=bill_val)
+                                            log.info("context_update: saved monthly_bill_usd=%.0f from document", bill_val)
+                                            break
+                                    except (ValueError, TypeError):
+                                        pass
+                        except Exception as _sme:
+                            log.warning("context_update: session_memory bill save failed: %s", _sme)
 
                         context_text = "\n".join(lines)
                         if context_text:

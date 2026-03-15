@@ -115,6 +115,19 @@ def run_solar_analysis(address: str, monthly_bill_usd: float, state: str) -> dic
         matched_panels, matched_cost, tax.get("revised_cost_usd"), address,
     )
 
+    # Persist key facts so future sessions skip asking for them.
+    try:
+        from session_memory import update as _smem_update
+        _smem_update(
+            address=address,
+            state=state_code,
+            monthly_bill_usd=monthly_bill_usd,
+            yearly_sunshine_hours=solar.get("yearly_sunshine_hours"),
+            roof_area_m2=solar.get("roof_area_m2"),
+        )
+    except Exception as _se:
+        log.warning("run_solar_analysis: session_memory update failed: %s", _se)
+
     return {
         # Solar potential
         "address":                      address,
