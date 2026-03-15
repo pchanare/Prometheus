@@ -55,6 +55,18 @@ def _save() -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+def reset() -> None:
+    """
+    Wipe all stored memory and persist the empty state to disk.
+    Called when the user provides a new address — a different property means
+    all prior solar figures, roof data, and image paths are stale.
+    """
+    global _mem
+    _mem = {}
+    _save()
+    log.info("session_memory: reset — all prior facts cleared")
+
+
 def update(**kwargs) -> None:
     """
     Update one or more memory fields and persist to disk immediately.
@@ -80,9 +92,13 @@ def build_injection() -> str:
     if not _mem:
         return ""
 
-    lines = ["── SESSION MEMORY (last known facts — may be overridden by the user) ──────",
-             "If the user provides NEW information in this session (a different address,",
-             "updated bill amount, etc.) always use their new input over these stored values."]
+    lines = ["── SESSION MEMORY (identity facts from your previous conversation) ─────────",
+             "Use address and name without asking again.",
+             "IMPORTANT: Always ask the user for their monthly electricity bill — never",
+             "assume it from a previous session. Bills change and the bill is the primary",
+             "input that sizes the entire solar system.",
+             "IMPORTANT: Never use any cached cost, panel count, or payback figures for",
+             "financial calculations — always call the relevant tools to get fresh data."]
 
     if _mem.get("address"):
         lines.append(f"Property address       : {_mem['address']}")
@@ -90,20 +106,12 @@ def build_injection() -> str:
         lines.append(f"Homeowner name         : {_mem['homeowner_name']}")
     if _mem.get("state"):
         lines.append(f"State                  : {_mem['state']}")
+    # monthly_bill_usd is intentionally NOT injected — the agent must always ask
+    # the user for their current bill rather than assuming a cached value.
     if _mem.get("yearly_sunshine_hours"):
         lines.append(f"Annual sunshine        : {_mem['yearly_sunshine_hours']} hrs/year")
-    if _mem.get("max_panels"):
-        lines.append(f"Recommended panels     : {_mem['max_panels']}")
     if _mem.get("roof_area_m2"):
         lines.append(f"Roof area              : {_mem['roof_area_m2']} m²")
-    if _mem.get("upfront_cost_usd"):
-        lines.append(f"System cost (pre-tax)  : {_mem['upfront_cost_usd']}")
-    if _mem.get("revised_cost_usd") is not None:
-        lines.append(f"Cost after incentives  : ${float(_mem['revised_cost_usd']):,.0f}")
-    if _mem.get("revised_payback_years") is not None:
-        lines.append(f"Payback period         : {_mem['revised_payback_years']} yrs (after incentives)")
-    if _mem.get("monthly_bill_usd") is not None:
-        lines.append(f"Monthly electricity bill: ${float(_mem['monthly_bill_usd']):,.0f}")
     if _mem.get("roof_age_years") is not None:
         lines.append(f"Roof age               : {_mem['roof_age_years']} years")
 
