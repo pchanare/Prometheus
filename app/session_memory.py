@@ -162,12 +162,7 @@ def build_injection() -> str:
         return ""
 
     lines = ["── SESSION MEMORY (identity facts from your previous conversation) ─────────",
-             "Use address and name without asking again.",
-             "IMPORTANT: Do NOT open with a welcome-back greeting. The user has already",
-             "been greeted. Respond directly and naturally to their first message.",
-             "IMPORTANT: Always ask the user for their monthly electricity bill — never",
-             "assume it from a previous session. Bills change and the bill is the primary",
-             "input that sizes the entire solar system.",
+             "Use address, name, and bill (if listed below) without asking again.",
              "IMPORTANT: Never use any cached cost, panel count, or payback figures for",
              "financial calculations — always call the relevant tools to get fresh data."]
 
@@ -177,8 +172,11 @@ def build_injection() -> str:
         lines.append(f"Homeowner name         : {_mem['homeowner_name']}")
     if _mem.get("state"):
         lines.append(f"State                  : {_mem['state']}")
-    # monthly_bill_usd is intentionally NOT injected — the agent must always ask
-    # the user for their current bill rather than assuming a cached value.
+    if _mem.get("monthly_bill_usd"):
+        lines.append(
+            f"Monthly electricity bill: ${float(_mem['monthly_bill_usd']):,.0f}/month"
+            " — use this, do not ask again unless the user says it has changed"
+        )
     if _mem.get("yearly_sunshine_hours"):
         lines.append(f"Annual sunshine        : {_mem['yearly_sunshine_hours']} hrs/year")
     if _mem.get("roof_area_m2"):
