@@ -1,15 +1,14 @@
 """
-status_channel.py — direct WebSocket status sender for real-time tool progress.
+status_channel.py — WebSocket status sender for real-time tool progress.
 
 HOW IT WORKS
 ─────────────────────────────────────────────────────────────────────────────
-Tools call push_status(text) or clear_status() from the thread-pool executor.
-
-Instead of a 300 ms polling loop, messages are scheduled on the event loop
-immediately via asyncio.run_coroutine_threadsafe — so they arrive at the
-browser at the exact moment the tool reaches that line, not after a poll delay.
+Status messages are sent via ADK's before_tool_callback / after_tool_callback,
+which are async and execute BEFORE / AFTER the sync tool function.  This
+guarantees the browser sees the status while the tool is actually working.
 
 Call init(loop, send_fn) once per WebSocket session from server.py.
+Use async_push_status / async_clear_status from the async callbacks.
 """
 
 import asyncio
@@ -18,23 +17,23 @@ import logging
 
 log = logging.getLogger("prometheus.status_channel")
 
-_loop: asyncio.AbstractEventLoop | None = None
 _send_fn = None   # websocket.send_text — the coroutine function
+_loop    = None   # event loop — stored so sync tools can schedule sends
 
 
-def init(loop: asyncio.AbstractEventLoop, send_fn) -> None:
-    """Register the running event loop and websocket send function. Called once per session."""
-    global _loop, _send_fn
-    _loop = loop
+def init(loop, send_fn) -> None:
+    """Register the event loop and websocket send function. Called once per session."""
+    global _send_fn, _loop
     _send_fn = send_fn
+    _loop    = loop
 
 
 def push_status(text: str) -> None:
     """
-    Show *text* in the browser's status-detail element immediately.
-    Safe to call from any thread (tool pool or event loop thread).
+    Sync version for use inside tool functions (which run in a thread pool).
+    Schedules the WebSocket send on the stored event loop without blocking.
     """
-    if _loop is None or _send_fn is None:
+    if _send_fn is None or _loop is None:
         return
     try:
         asyncio.run_coroutine_threadsafe(
@@ -46,9 +45,42 @@ def push_status(text: str) -> None:
 
 
 def clear_status() -> None:
-    """
-    Hide the status-detail element in the browser.
-    Call this immediately after a tool operation completes.
-    Safe to call from any thread.
-    """
+    """Sync version — hide the status element in the browser."""
     push_status("")
+
+
+async def async_push_status(text: str, speak: str = "", tool: str = "") -> None:
+    """
+    Send a status message to the browser.  MUST be called from an async
+    context (e.g. before/after tool callbacks).  The await ensures the
+    WebSocket send completes before returning.
+    """
+    if _send_fn is None:
+        return
+    try:
+        payload: dict = {"type": "status", "text": text}
+        if speak:
+            payload["speak"] = speak
+        if tool:
+            payload["tool"] = tool
+        await _send_fn(json.dumps(payload))
+    except Exception as exc:
+        log.debug("async_push_status: %s", exc)
+
+
+async def async_clear_status() -> None:
+    """Hide the status element in the browser."""
+    await async_push_status("")
+
+
+async def async_send_json(payload: dict) -> None:
+    """
+    Send an arbitrary JSON message directly to the browser WebSocket.
+    Used by after_tool_callback to deliver financial cards, etc.
+    """
+    if _send_fn is None:
+        return
+    try:
+        await _send_fn(json.dumps(payload))
+    except Exception as exc:
+        log.debug("async_send_json: %s", exc)
