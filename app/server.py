@@ -47,6 +47,37 @@ from google.genai.types import Modality
 
 from Prometheus.agent import root_agent, _BASE_INSTRUCTION, _DESCRIPTION, _MODEL, _TOOLS
 
+
+# ── Image resize helper ───────────────────────────────────────────────────────
+# Resizes images before sending to Gemini Live to reduce context token usage.
+# The ORIGINAL bytes are always saved to disk so mockup generation is unaffected.
+_MODEL_IMAGE_MAX_PX = 512   # longer side limit for Gemini analysis context
+
+def _resize_for_model(img_bytes: bytes, max_px: int = _MODEL_IMAGE_MAX_PX) -> bytes:
+    """
+    Downscale image so the longer side ≤ max_px, maintaining aspect ratio.
+    Returns original bytes unchanged if already small enough or if PIL fails.
+    Only affects what Gemini sees for analysis — NOT the file saved to disk.
+    """
+    try:
+        import io
+        from PIL import Image
+        img = Image.open(io.BytesIO(img_bytes))
+        w, h = img.size
+        if max(w, h) <= max_px:
+            return img_bytes
+        scale = max_px / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        resized = buf.getvalue()
+        log.info("_resize_for_model: %dx%d → %dx%d  (%d → %d bytes)",
+                 w, h, int(w * scale), int(h * scale), len(img_bytes), len(resized))
+        return resized
+    except Exception as exc:
+        log.warning("_resize_for_model: failed (%s) — using original bytes", exc)
+        return img_bytes
+
 # Brain import — used for PDF analysis endpoint only
 try:
     from brain import analyze_pdf_bytes as _analyze_pdf
@@ -66,14 +97,9 @@ except Exception as _mockup_err:
     def _pop_mockup_images():
         return []
 
-# Clear session memory on every server restart so stale facts from a previous
-# run never bleed into a fresh server process.
-try:
-    from session_memory import reset as _reset_mem_on_startup
-    _reset_mem_on_startup()
-    log.info("Session memory cleared on server startup")
-except Exception as _mem_startup_err:
-    log.warning("Could not reset session memory on startup: %s", _mem_startup_err)
+# Session memory is loaded on import (GCS on Cloud Run, local file in dev).
+# Do NOT reset here — GCS persistence is the whole point; facts survive restarts.
+# Memory is reset only when the user provides a new address (session_memory.reset()).
 
 # Status channel — async before/after tool callbacks send status messages
 # to the browser via WebSocket.  Because the callbacks are async they execute
@@ -244,9 +270,9 @@ session_service = InMemorySessionService()
 _ws_connection_count = 0
 
 # Timestamp of the last WebSocket close. Used to distinguish a fast
-# Gemini Live reconnect (<120 s) from a browser page refresh (longer gap).
+# Gemini Live reconnect (<600 s) from a browser page refresh (longer gap).
 _last_ws_close_time: float = 0.0
-_RECONNECT_WINDOW_S: int = 120   # seconds
+_RECONNECT_WINDOW_S: int = 900   # seconds — 15 min safely exceeds Gemini Live ~10 min session limit
 
 
 def make_runner(mode: str, memory_note: str = "") -> Runner:
@@ -699,7 +725,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                     elif kind == "image":
                         img_bytes = base64.b64decode(payload["data"])
                         live_queue.send_realtime(
-                            types.Blob(data=img_bytes, mime_type="image/jpeg")
+                            types.Blob(data=_resize_for_model(img_bytes), mime_type="image/jpeg")
                         )
 
                     elif kind == "camera_on":
@@ -717,10 +743,15 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                                     types.Part(
                                         text=(
                                             "I've just turned on my camera. "
-                                            "Please describe what you see in this space and give a quick "
-                                            "assessment of its solar potential. "
-                                            "Then invite me to take a clear photo and upload it to the chat "
-                                            "for a detailed solar analysis and mockup."
+                                            "Please look at this space and: "
+                                            "1) Identify whether it's a rooftop or house exterior, or an outdoor space "
+                                            "(backyard, patio, yard, open land, etc.). "
+                                            "2) Describe what you see and call out any shading sources or obstacles "
+                                            "(trees, chimneys, neighbouring structures, skylights) that would affect solar output. "
+                                            "3) Give a specific solar recommendation for this exact space — rooftop solar if "
+                                            "it's a roof, or canopy/ground-mount for outdoor spaces — and factor any visible "
+                                            "obstacles into your recommendation (e.g. shade from a tree reduces viable panel area). "
+                                            "4) Invite me to take a clear photo and upload it for a full detailed analysis."
                                         )
                                     ),
                                 ],
@@ -749,20 +780,26 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                             label = f"{user_label}\n[Image saved at: {tmp_path}]"
                         else:
                             label = (
-                                f"I just shared this image (saved at: {tmp_path}). "
-                                "Please describe what you see and how it relates to solar installation. "
-                                f"If it shows an outdoor space (backyard, garden, courtyard, etc.), "
-                                f"call analyze_space_for_solar with image_path=\"{tmp_path}\" "
-                                "and the appropriate space_type."
+                                f"I just uploaded this image (saved at: {tmp_path}). "
+                                "Look at what the image shows:\n"
+                                "- If it shows a ROOFTOP or house exterior: describe the roof, note any "
+                                "shading obstacles (trees, chimneys, skylights, neighbouring structures), "
+                                "and ask what they would like to do next (rooftop solar analysis or mockup).\n"
+                                f"- If it shows an OUTDOOR SPACE (backyard, garden, courtyard, patio, open land): "
+                                f"call analyze_space_for_solar with image_path=\"{tmp_path}\" and the "
+                                "appropriate space_type. Note any visible shading or obstacles in your spoken response.\n"
+                                "Always describe what you see before taking any action."
                             )
                         log.info("Capture label: %r", label[:80])
+                        # Send a resized copy to Gemini Live to save context tokens.
+                        # img_bytes (full resolution) is already on disk for mockup generation.
                         live_queue.send_content(
                             types.Content(
                                 role="user",
                                 parts=[
                                     types.Part(
                                         inline_data=types.Blob(
-                                            data=img_bytes,
+                                            data=_resize_for_model(img_bytes),
                                             mime_type="image/jpeg",
                                         )
                                     ),
@@ -791,6 +828,28 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                             "Use all information above when answering the user's questions. "
                             "Do NOT ask the user for data that is already present here."
                         )
+
+                        # Persist any monthly bill found in the document to session memory
+                        # so future sessions can skip asking for it.
+                        try:
+                            from session_memory import update as _smem_update
+                            _BILL_KEYS = ("monthly cost", "average monthly bill",
+                                          "monthly bill", "monthly charge",
+                                          "monthly electricity", "monthly payment")
+                            for fact in key_facts:
+                                k = (fact.get("key") or "").lower().strip()
+                                v = str(fact.get("value") or "").replace("$", "").replace(",", "").strip()
+                                if any(bk in k for bk in _BILL_KEYS) and v:
+                                    try:
+                                        bill_val = float(v.split("/")[0].split(" ")[0])
+                                        if 10 < bill_val < 10000:
+                                            _smem_update(monthly_bill_usd=bill_val)
+                                            log.info("context_update: saved monthly_bill_usd=%.0f from document", bill_val)
+                                            break
+                                    except (ValueError, TypeError):
+                                        pass
+                        except Exception as _sme:
+                            log.warning("context_update: session_memory bill save failed: %s", _sme)
 
                         context_text = "\n".join(lines)
                         if context_text:

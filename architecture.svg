@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" font-family="'Segoe UI', Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 762" font-family="'Segoe UI', Arial, sans-serif">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#0f172a"/>
@@ -20,6 +20,10 @@
       <stop offset="0%" stop-color="#3b0764"/>
       <stop offset="100%" stop-color="#4a044e"/>
     </linearGradient>
+    <linearGradient id="gcs-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0c4a6e"/>
+      <stop offset="100%" stop-color="#075985"/>
+    </linearGradient>
     <filter id="shadow">
       <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="rgba(0,0,0,0.4)"/>
     </filter>
@@ -35,10 +39,13 @@
     <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
       <path d="M0,0 L0,6 L8,3 z" fill="#a855f7"/>
     </marker>
+    <marker id="arrow-sky" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#38bdf8"/>
+    </marker>
   </defs>
 
   <!-- Background -->
-  <rect width="960" height="680" fill="url(#bg)"/>
+  <rect width="960" height="762" fill="url(#bg)"/>
 
   <!-- Title -->
   <text x="480" y="38" text-anchor="middle" fill="#f59e0b" font-size="22" font-weight="700" letter-spacing="1">Prometheus — AI Solar Advisor</text>
@@ -90,7 +97,7 @@
   <text x="180" y="313" text-anchor="middle" fill="#94a3b8" font-size="10">HTTP  /  WebSocket</text>
   <text x="180" y="329" text-anchor="middle" fill="#94a3b8" font-size="10">Static file serving</text>
   <text x="180" y="345" text-anchor="middle" fill="#94a3b8" font-size="10">PDF upload  /analyze-pdf</text>
-  <text x="180" y="361" text-anchor="middle" fill="#94a3b8" font-size="10">Session memory</text>
+  <text x="180" y="361" text-anchor="middle" fill="#38bdf8" font-size="10">Session memory ↔ GCS</text>
   <text x="180" y="377" text-anchor="middle" fill="#94a3b8" font-size="10">Status channel push</text>
   <text x="180" y="393" text-anchor="middle" fill="#94a3b8" font-size="10">Before / after tool callbacks</text>
 
@@ -100,17 +107,18 @@
   <line x1="320" y1="278" x2="860" y2="278" stroke="#f97316" stroke-width="0.5" stroke-dasharray="3,3"/>
 
   <!-- Agent box inside ADK -->
-  <rect x="318" y="285" width="240" height="125" rx="5" fill="rgba(249,115,22,0.1)" stroke="#fb923c" stroke-width="1"/>
+  <rect x="318" y="285" width="240" height="130" rx="5" fill="rgba(249,115,22,0.1)" stroke="#fb923c" stroke-width="1"/>
   <text x="438" y="302" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="600">Prometheus Agent  (agent.py)</text>
   <text x="438" y="318" text-anchor="middle" fill="#64748b" font-size="9">gemini-live-2.5-flash-native-audio</text>
   <text x="438" y="332" text-anchor="middle" fill="#94a3b8" font-size="9">InMemorySessionService</text>
   <text x="438" y="346" text-anchor="middle" fill="#94a3b8" font-size="9">LiveRequestQueue</text>
   <text x="438" y="360" text-anchor="middle" fill="#94a3b8" font-size="9">RunConfig (AUDIO / TEXT)</text>
   <text x="438" y="374" text-anchor="middle" fill="#94a3b8" font-size="9">Custom VAD (activity signals)</text>
-  <text x="438" y="390" text-anchor="middle" fill="#94a3b8" font-size="9">Brain tier: gemini-3.1-flash-lite</text>
+  <text x="438" y="388" text-anchor="middle" fill="#94a3b8" font-size="9">Brain tier: gemini-3.1-flash-lite</text>
+  <text x="438" y="402" text-anchor="middle" fill="#64748b" font-size="9">30-min TTL session pruning</text>
 
   <!-- Tools box inside ADK -->
-  <rect x="576" y="285" width="295" height="125" rx="5" fill="rgba(249,115,22,0.1)" stroke="#fb923c" stroke-width="1"/>
+  <rect x="576" y="285" width="295" height="130" rx="5" fill="rgba(249,115,22,0.1)" stroke="#fb923c" stroke-width="1"/>
   <text x="723" y="302" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="600">Tools</text>
   <text x="660" y="320" fill="#94a3b8" font-size="9">• run_solar_analysis</text>
   <text x="660" y="334" fill="#94a3b8" font-size="9">• generate_solar_mockup</text>
@@ -122,12 +130,17 @@
   <text x="790" y="362" fill="#94a3b8" font-size="9">• web_search</text>
 
   <!-- Secret Manager note -->
-  <rect x="318" y="416" width="555" height="20" rx="4" fill="rgba(249,115,22,0.08)" stroke="#f97316" stroke-width="0.5"/>
-  <text x="595" y="430" text-anchor="middle" fill="#fb923c" font-size="9">🔒  API keys + Gmail token injected at runtime from  Secret Manager</text>
+  <rect x="318" y="421" width="555" height="20" rx="4" fill="rgba(249,115,22,0.08)" stroke="#f97316" stroke-width="0.5"/>
+  <text x="595" y="435" text-anchor="middle" fill="#fb923c" font-size="9">🔒  API keys + Gmail token injected at runtime from  Secret Manager</text>
 
   <!-- Arrow from Cloud Run down to Vertex + APIs -->
   <line x1="280" y1="442" x2="220" y2="478" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-green)"/>
   <line x1="680" y1="442" x2="680" y2="478" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-purple)"/>
+
+  <!-- Arrow from Cloud Run (FastAPI, left side) → GCS block (outside Vertex AI box) -->
+  <path d="M 60,380 L 42,380 L 42,692 L 330,692" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="4,3" fill="none" marker-end="url(#arrow-sky)"/>
+  <rect x="2" y="534" width="76" height="16" rx="3" fill="#0f172a"/>
+  <text x="40" y="545" text-anchor="middle" fill="#38bdf8" font-size="8" transform="rotate(-90,40,545)">read / write</text>
 
   <!-- ═══════════════════════════════════════════
        BOTTOM ROW — Vertex AI + Google APIs
@@ -188,13 +201,25 @@
   <text x="810" y="609" text-anchor="middle" fill="#64748b" font-size="9">OAuth RFP emails</text>
   <text x="810" y="623" text-anchor="middle" fill="#64748b" font-size="9">to installers</text>
 
+  <!-- ═══════════════════════════════════════════
+       GCS SESSION MEMORY BLOCK
+  ════════════════════════════════════════════ -->
+  <rect x="330" y="660" width="300" height="68" rx="10" fill="url(#gcs-grad)" stroke="#38bdf8" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="480" y="680" text-anchor="middle" fill="#7dd3fc" font-size="11" font-weight="600" letter-spacing="0.5">CLOUD STORAGE  ·  Session Memory</text>
+  <line x1="350" y1="685" x2="610" y2="685" stroke="#38bdf8" stroke-width="0.5" stroke-dasharray="3,3"/>
+  <text x="480" y="699" text-anchor="middle" fill="#94a3b8" font-size="10">prometheus_memory.json</text>
+  <text x="480" y="713" text-anchor="middle" fill="#64748b" font-size="9">address · name · roof area · sunshine hrs</text>
+  <text x="480" y="724" text-anchor="middle" fill="#64748b" font-size="9">Persists across container restarts / OOM</text>
+
   <!-- Legend -->
-  <rect x="60" y="660" width="840" height="16" rx="4" fill="rgba(255,255,255,0.03)"/>
-  <line x1="80" y1="668" x2="110" y2="668" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/>
-  <text x="116" y="672" fill="#94a3b8" font-size="9">WebSocket (audio + JSON)</text>
-  <line x1="230" y1="668" x2="260" y2="668" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4,3"/>
-  <text x="266" y="672" fill="#94a3b8" font-size="9">Vertex AI calls</text>
-  <line x1="370" y1="668" x2="400" y2="668" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4,3"/>
-  <text x="406" y="672" fill="#94a3b8" font-size="9">Google Cloud API calls</text>
-  <text x="880" y="672" text-anchor="end" fill="#334155" font-size="9">Prometheus · Gemini Live Agent Challenge</text>
+  <rect x="60" y="742" width="840" height="16" rx="4" fill="rgba(255,255,255,0.03)"/>
+  <line x1="80" y1="750" x2="110" y2="750" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="116" y="754" fill="#94a3b8" font-size="9">WebSocket (audio + JSON)</text>
+  <line x1="240" y1="750" x2="270" y2="750" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="276" y="754" fill="#94a3b8" font-size="9">Vertex AI calls</text>
+  <line x1="370" y1="750" x2="400" y2="750" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="406" y="754" fill="#94a3b8" font-size="9">Google Cloud API calls</text>
+  <line x1="530" y1="750" x2="560" y2="750" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="566" y="754" fill="#94a3b8" font-size="9">Cloud Storage (session memory)</text>
+  <text x="880" y="754" text-anchor="end" fill="#334155" font-size="9">Prometheus · Gemini Live Agent Challenge</text>
 </svg>

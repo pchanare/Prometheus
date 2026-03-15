@@ -68,7 +68,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 24px 28px;
+  padding: 24px 24px 44px;
   border-right: 2px solid rgba(245,158,11,0.35);
   background: linear-gradient(160deg, #1a2640 0%, #131c30 100%);
   position: relative;
@@ -196,10 +196,10 @@ body {
 .orb-ring {
   position: absolute;
   border-radius: 50%;
-  border: 1px solid rgba(251,191,36,0.13);
+  border: 1.5px solid rgba(251,191,36,0.38);
 }
 .orb-ring-1 { inset: 8px;  animation: spin 14s linear infinite; }
-.orb-ring-2 { inset: -4px; border-color: rgba(251,191,36,0.06); animation: spin 22s linear infinite reverse; }
+.orb-ring-2 { inset: -4px; border-color: rgba(251,191,36,0.18); animation: spin 22s linear infinite reverse; }
 
 /* Blob container */
 .orb-blobs {
@@ -430,7 +430,7 @@ body.listening .mic-hint { color: rgba(251,191,36,1.0); }
   justify-content: center;
   transition: border-color var(--t), color var(--t), background var(--t), transform 0.14s;
 }
-.ctrl-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.ctrl-btn svg { width: 22px; height: 22px; fill: currentColor; }
 .ctrl-btn:hover {
   border-color: var(--amber-bright);
   color: var(--amber-bright);
@@ -1092,8 +1092,8 @@ body.listening .mic-hint { color: rgba(251,191,36,1.0); }
   }
   #left {
     width: 36%;
-    min-width: 240px;
-    padding: 18px 14px 20px;
+    min-width: 200px;
+    padding: 18px 14px 36px;
   }
   #right {
     min-height: 0;           /* ensures transcript shrinks so input bar stays visible */
@@ -1111,8 +1111,8 @@ body.listening .mic-hint { color: rgba(251,191,36,1.0); }
   .ctrl-row     { flex-wrap: wrap; gap: 8px; justify-content: center; }
 }
 
-/* ── Responsive — Mobile (≤ 640px) ──────────────────────── */
-@media (max-width: 640px) {
+/* ── Responsive — Mobile (≤ 430px) ──────────────────────── */
+@media (max-width: 430px) {
   body {
     flex-direction: column;
     height: 100dvh;
@@ -1174,9 +1174,9 @@ body.listening .mic-hint { color: rgba(251,191,36,1.0); }
   /* Controls stay on the right, compact */
   .controls { flex-shrink: 0; }
   .mic-hint { display: none; }
-  .ctrl-row  { gap: 6px; }
-  .ctrl-btn  { width: 36px; height: 36px; }
-  .ctrl-btn svg { width: 16px; height: 16px; }
+  .ctrl-row  { gap: 6px; padding-bottom: 6px; }
+  .ctrl-btn  { width: 40px; height: 40px; }
+  .ctrl-btn svg { width: 20px; height: 20px; }
 
   /* Right panel fills the rest */
   #right     { flex: 1; min-height: 0; }
@@ -1524,12 +1524,12 @@ document.addEventListener('touchend', _unlockAudio, { once: true });
 
 // ── Steps completion tracking ────────────────────────────
 const TOOL_LABELS = {
-  run_solar_analysis:       { running: 'Analysing solar data - please wait 15-30 s…', done: 'Solar data fetched' },
+  run_solar_analysis:       { running: 'Analysing solar data - please wait 15-30 secs…', done: 'Solar data fetched' },
   calculate_outdoor_solar:  { running: 'Calculating outdoor system costs…',            done: 'Outdoor system costs ready' },
   calculate_combined_solar: { running: 'Calculating combined system costs…',           done: 'Combined system costs ready' },
   send_all_rfps:            { running: 'Sending RFP emails - please wait…',            done: 'RFP emails sent' },
   find_local_installers:    { running: 'Finding local installers…',                    done: 'Local installers found' },
-  generate_solar_mockup:    { running: 'Generating mockup - please wait 15-30 s…',     done: 'Solar mockup generated' },
+  generate_solar_mockup:    { running: 'Generating mockup - please wait 15-30 secs…',     done: 'Solar mockup generated' },
   analyze_space_for_solar:  { running: 'Analysing your space…',                        done: 'Space analysed' },
 };
 let _completedSteps = [];   // { tool, runningLabel, doneLabel, done }
