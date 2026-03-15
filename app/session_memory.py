@@ -20,6 +20,9 @@ import json
 import logging
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_EASTERN = ZoneInfo("America/New_York")
 
 log = logging.getLogger("prometheus.memory")
 
@@ -145,7 +148,7 @@ def update(**kwargs) -> None:
             _mem[key] = val
             changed = True
     if changed:
-        _mem["last_updated"] = datetime.now().isoformat()
+        _mem["last_updated"] = datetime.now(_EASTERN).isoformat()
         _save()
         log.info("session_memory: updated keys=%s", list(kwargs.keys()))
 
