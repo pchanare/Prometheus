@@ -32,9 +32,12 @@ def calculate_outdoor_solar(
     Combines live market pricing, tax benefits, and local incentive search into
     ONE tool call so the model speaks exactly once after the result returns.
 
-    Call this when the user asks for the cost, savings, or payback for a
-    canopy or ground-mount system — do NOT call search_installation_cost,
-    get_tax_benefits, or search_solar_incentives separately for this flow.
+    Call this EXACTLY ONCE per image upload or user request — never call it
+    multiple times with different panel counts or scenarios for the same image.
+    Use the panel_count from analyze_space_for_solar unchanged.
+
+    Do NOT call search_installation_cost, get_tax_benefits, or
+    search_solar_incentives separately for this flow.
 
     Args:
         panel_count:            Number of panels (from analyze_space_for_solar).

@@ -209,6 +209,7 @@ prometheus-agent/
 │   ├── rfp_generator.py        # Personalised RFP email generation
 │   ├── send_rfp_email.py       # Gmail API sender (OAuth via Secret Manager)
 │   ├── image_analysis.py       # Gemini vision - outdoor space analysis
+│   ├── tax_benefits.py         # Federal ITC + live state incentive lookup (Custom Search + Brain fallback)
 │   ├── search_tool.py          # Google Custom Search web tool
 │   ├── session_memory.py       # Persistent session memory - GCS-backed on Cloud Run, local file in dev
 │   ├── status_channel.py       # Real-time status push to browser
@@ -251,8 +252,9 @@ prometheus-agent/
 - 🏗️ **AI-generated mockups** - See what panels look like on your actual property
 - 📄 **Document upload** - Drop in your electricity bill; the agent reads it automatically
 - 📧 **Automated RFP emails** - Agent drafts and sends personalised quote requests to installers
-- 💰 **Full financial breakdown** - Cost, savings, payback, ITC, state incentives in one card
-- 🔄 **Session memory** - Remembers your address, bill, and name across reconnects
+- 💰 **Full financial breakdown** - Cost, savings, payback, ITC, and live state incentives (Custom Search + Brain fallback) in one card
+- 🔄 **Session memory** - Remembers your address, roof data, and name across reconnects via GCS (survives container restarts)
+- 🧹 **Auto-pruning session cache** - Background task evicts ADK sessions idle for 30+ minutes to prevent memory growth on Cloud Run
 
 ---
 

@@ -47,6 +47,37 @@ from google.genai.types import Modality
 
 from Prometheus.agent import root_agent, _BASE_INSTRUCTION, _DESCRIPTION, _MODEL, _TOOLS
 
+
+# ── Image resize helper ───────────────────────────────────────────────────────
+# Resizes images before sending to Gemini Live to reduce context token usage.
+# The ORIGINAL bytes are always saved to disk so mockup generation is unaffected.
+_MODEL_IMAGE_MAX_PX = 512   # longer side limit for Gemini analysis context
+
+def _resize_for_model(img_bytes: bytes, max_px: int = _MODEL_IMAGE_MAX_PX) -> bytes:
+    """
+    Downscale image so the longer side ≤ max_px, maintaining aspect ratio.
+    Returns original bytes unchanged if already small enough or if PIL fails.
+    Only affects what Gemini sees for analysis — NOT the file saved to disk.
+    """
+    try:
+        import io
+        from PIL import Image
+        img = Image.open(io.BytesIO(img_bytes))
+        w, h = img.size
+        if max(w, h) <= max_px:
+            return img_bytes
+        scale = max_px / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        resized = buf.getvalue()
+        log.info("_resize_for_model: %dx%d → %dx%d  (%d → %d bytes)",
+                 w, h, int(w * scale), int(h * scale), len(img_bytes), len(resized))
+        return resized
+    except Exception as exc:
+        log.warning("_resize_for_model: failed (%s) — using original bytes", exc)
+        return img_bytes
+
 # Brain import — used for PDF analysis endpoint only
 try:
     from brain import analyze_pdf_bytes as _analyze_pdf
@@ -239,9 +270,9 @@ session_service = InMemorySessionService()
 _ws_connection_count = 0
 
 # Timestamp of the last WebSocket close. Used to distinguish a fast
-# Gemini Live reconnect (<120 s) from a browser page refresh (longer gap).
+# Gemini Live reconnect (<600 s) from a browser page refresh (longer gap).
 _last_ws_close_time: float = 0.0
-_RECONNECT_WINDOW_S: int = 120   # seconds
+_RECONNECT_WINDOW_S: int = 900   # seconds — 15 min safely exceeds Gemini Live ~10 min session limit
 
 
 def make_runner(mode: str, memory_note: str = "") -> Runner:
@@ -694,7 +725,7 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                     elif kind == "image":
                         img_bytes = base64.b64decode(payload["data"])
                         live_queue.send_realtime(
-                            types.Blob(data=img_bytes, mime_type="image/jpeg")
+                            types.Blob(data=_resize_for_model(img_bytes), mime_type="image/jpeg")
                         )
 
                     elif kind == "camera_on":
@@ -760,13 +791,15 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                                 "Always describe what you see before taking any action."
                             )
                         log.info("Capture label: %r", label[:80])
+                        # Send a resized copy to Gemini Live to save context tokens.
+                        # img_bytes (full resolution) is already on disk for mockup generation.
                         live_queue.send_content(
                             types.Content(
                                 role="user",
                                 parts=[
                                     types.Part(
                                         inline_data=types.Blob(
-                                            data=img_bytes,
+                                            data=_resize_for_model(img_bytes),
                                             mime_type="image/jpeg",
                                         )
                                     ),
