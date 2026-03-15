@@ -216,13 +216,17 @@ _BASE_INSTRUCTION = """
        NEVER say the space is unsuitable or has no solar potential. Every outdoor
        space can support either a canopy or a ground-mount system.
 
-    2. Immediately (no spoken word between tools) call 'calculate_outdoor_solar' with:
-         panel_count              : from analyze_space_for_solar result
+    2. Immediately (no spoken word between tools) call 'calculate_outdoor_solar' EXACTLY ONCE with:
+         panel_count              : from analyze_space_for_solar result — use this number unchanged
          installation_type        : "canopy" or "ground_mount" from analyze_space_for_solar
          state                    : from address/session memory; if unknown ask the user once
          yearly_sunshine_hours    : from run_solar_analysis if address was analysed, else 0
          annual_energy_kwh        : from analyze_space_for_solar result
          electricity_rate_per_kwh : from run_solar_analysis if known, else omit (defaults 0.16)
+
+       *** NEVER call calculate_outdoor_solar more than once per image upload. ***
+       Do NOT call it again with a different panel count, a reduced count, or any variation.
+       One image → one analyze_space_for_solar → one calculate_outdoor_solar. Full stop.
 
     3. After BOTH tools return, deliver ONE spoken response covering:
        - Usable area and installation type: "[X] sq ft — ideal for a [Canopy / Ground Mount]"
@@ -332,6 +336,9 @@ _BASE_INSTRUCTION = """
     ── INDIVIDUAL CANOPY / GROUND-MOUNT FINANCIAL CALCULATION ─────────────────
     Run this ONLY when the user explicitly asks for savings, cost, or payback for a
     canopy or ground-mount system ONLY (not combined with rooftop).
+    IMPORTANT: If 'calculate_outdoor_solar' was already called for this image during
+    the current session (results are already in the conversation), do NOT call it
+    again — read the figures directly from the existing results and speak them.
 
     1. Call 'calculate_outdoor_solar' immediately — the browser announces it automatically. Use:
          panel_count              : from analyze_space_for_solar result
