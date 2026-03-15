@@ -38,6 +38,7 @@ See `architecture.svg` for the full system diagram.
 | Geocoding / Maps | **Google Maps Platform** |
 | Document parsing | **Google Document AI** |
 | Secrets | **Google Secret Manager** |
+| Session memory | **Google Cloud Storage** (persists across container restarts) |
 | Deployment | **Cloud Run** + Artifact Registry + Cloud Build |
 
 ---
@@ -56,6 +57,7 @@ See `architecture.svg` for the full system diagram.
   - Gmail API (for RFP emails)
   - Secret Manager API
   - Cloud Run API + Artifact Registry API
+  - Cloud Storage API (for persistent session memory)
 
 ---
 
@@ -208,7 +210,7 @@ prometheus-agent/
 │   ├── send_rfp_email.py       # Gmail API sender (OAuth via Secret Manager)
 │   ├── image_analysis.py       # Gemini vision — outdoor space analysis
 │   ├── search_tool.py          # Google Custom Search web tool
-│   ├── session_memory.py       # Persistent per-session memory
+│   ├── session_memory.py       # Persistent session memory — GCS-backed on Cloud Run, local file in dev
 │   ├── status_channel.py       # Real-time status push to browser
 │   └── static/
 │       └── index.html          # Single-page frontend (voice UI + chat)
@@ -279,7 +281,7 @@ Every `git push` to `main` automatically builds a fresh Docker image tagged with
 
 | File | Purpose |
 |---|---|
-| `terraform/main.tf` | Defines Cloud Run service, Service Account, IAM roles, Artifact Registry, and API enablement |
+| `terraform/main.tf` | Defines Cloud Run service, Service Account, IAM roles, Artifact Registry, GCS memory bucket, and API enablement |
 | `terraform/variables.tf` | Project ID, region, service name, image path |
 | `terraform/outputs.tf` | Outputs the live Cloud Run URL after apply |
 | `cloudbuild.yaml` | 3-step CI/CD pipeline: build → push → deploy, triggered on every push to `main` |
@@ -304,6 +306,7 @@ Terraform manages:
 - Artifact Registry repository
 - Required API enablement
 - Public (`allUsers`) invoker policy
+- GCS bucket for session memory persistence across container restarts
 
 ### Ongoing deploys
 
