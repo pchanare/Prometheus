@@ -44,10 +44,6 @@ def push_status(text: str) -> None:
         log.debug("push_status: %s", exc)
 
 
-def clear_status() -> None:
-    """Sync version — hide the status element in the browser."""
-    push_status("")
-
 
 async def async_push_status(text: str, speak: str = "", tool: str = "") -> None:
     """
