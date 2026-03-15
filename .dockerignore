@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+app/credentials.json
+app/token.pickle
+app/session_memory.json
+*.jpg
+*.png
+.claude/
+.venv/
