@@ -14,6 +14,58 @@ TOKEN_FILE = os.path.join(os.path.dirname(__file__), "token.pickle")
 # context replay).  Key: "<company_email>::<subject>", value: unix timestamp.
 _DEDUP_WINDOW_S = 120   # 2-minute window
 _sent_log: dict[str, float] = {}
+_cached_creds = None   # module-level cache so Secret Manager is only hit once
+
+
+def _load_credentials():
+    """Load Gmail OAuth credentials.
+
+    Local dev  — reads token.pickle from disk (fast, no network call).
+    Cloud Run  — reads GMAIL_TOKEN secret from Secret Manager (base64-encoded
+                 pickle), falls back gracefully if the library is absent.
+    Refreshes an expired token in-memory; writes back to disk when running
+    locally so the refresh persists across restarts.
+    """
+    global _cached_creds
+
+    # Return the in-memory cache if still valid
+    if _cached_creds and not _cached_creds.expired:
+        return _cached_creds
+
+    creds = None
+
+    # ── 1. Secret Manager (preferred — works both locally and on Cloud Run) ──
+    try:
+        from google.cloud import secretmanager
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "prometheus-489421")
+        client  = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{project}/secrets/GMAIL_TOKEN/versions/latest"
+        resp    = client.access_secret_version(request={"name": secret_name})
+        raw_b64 = resp.payload.data.decode("utf-8").strip()
+        creds   = pickle.loads(base64.b64decode(raw_b64))
+    except Exception:
+        pass  # fall through to local file
+
+    # ── 2. Local file fallback (dev machine without Secret Manager access) ───
+    if creds is None:
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, "rb") as fh:
+                creds = pickle.load(fh)
+        else:
+            raise RuntimeError(
+                "Gmail token not found in Secret Manager or local token.pickle."
+            )
+
+    # ── 3. Refresh if expired ────────────────────────────────────────────────
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        # Persist refresh locally; Cloud Run container is ephemeral so skip there
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, "wb") as fh:
+                pickle.dump(creds, fh)
+
+    _cached_creds = creds
+    return creds
 
 
 def send_rfp_email(
@@ -72,21 +124,7 @@ def send_rfp_email(
     try:
         sender_email = os.environ.get("SENDER_EMAIL", "me")
 
-        if not os.path.exists(TOKEN_FILE):
-            return {
-                "status": "failed",
-                "error": "token.pickle not found. Please run auth_test.py first.",
-                "message": "Authentication token missing"
-            }
-
-        with open(TOKEN_FILE, "rb") as token:
-            creds = pickle.load(token)
-
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(TOKEN_FILE, "wb") as token:
-                pickle.dump(creds, token)
-
+        creds   = _load_credentials()
         service = build("gmail", "v1", credentials=creds)
 
         html_content = f"""
