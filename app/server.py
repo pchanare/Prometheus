@@ -192,6 +192,7 @@ async def _after_tool_cb(tool, args, tool_context, tool_response=None, **kwargs)
         "run_solar_analysis":       "solar_data",
         "calculate_outdoor_solar":  "outdoor_data",
         "calculate_combined_solar": "combined_data",
+        "find_local_installers":    "installer_data",
     }
     if tool_name in _CARD_MSG_TYPE:
         if isinstance(tool_response, dict) and not tool_response.get("error"):

@@ -1120,6 +1120,109 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
   }
   #camera-close { top: 8px; right: 8px; }
 }
+
+/* ══════════════════════════════════════════════════════════
+   IMAGE WRAPPER — hover-download button over chat/mockup images
+══════════════════════════════════════════════════════════ */
+.img-wrap {
+  position: relative;
+  display: inline-block;
+  margin-top: 7px;
+}
+.img-wrap.block { display: block; width: 100%; margin-top: 10px; }
+.img-wrap .chat-img,
+.img-wrap .mockup-img { margin-top: 0; }
+.img-dl-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: none;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(4px);
+  color: rgba(255,255,255,0.9);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.18s, background 0.15s;
+  z-index: 2;
+}
+.img-wrap:hover .img-dl-btn { opacity: 1; }
+.img-dl-btn:hover { background: rgba(0,0,0,0.85); }
+
+/* ══════════════════════════════════════════════════════════
+   LIGHTBOX — full-screen image overlay
+══════════════════════════════════════════════════════════ */
+#lightbox {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(0,0,0,0.92);
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+#lightbox.visible { display: flex; }
+#lightbox-img {
+  max-width: 92vw;
+  max-height: 88vh;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 8px 48px rgba(0,0,0,0.8);
+  cursor: default;
+  user-select: none;
+}
+#lightbox-close,
+#lightbox-dl {
+  position: absolute;
+  top: 16px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.15s;
+  z-index: 9001;
+}
+#lightbox-close { right: 16px; font-size: 17px; line-height: 1; }
+#lightbox-dl    { right: 62px; }
+#lightbox-close:hover,
+#lightbox-dl:hover { background: rgba(255,255,255,0.22); transform: scale(1.08); }
+
+/* ══════════════════════════════════════════════════════════
+   INSTALLER CARD — extras on top of solar-card base
+══════════════════════════════════════════════════════════ */
+.installer-name {
+  padding: 4px 14px 2px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--amber-bright);
+}
+.installer-addr {
+  padding: 1px 14px 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.solar-row-val.installer-email {
+  font-size: 11px;
+  color: rgba(56,189,248,0.85);
+  font-weight: 500;
+  white-space: normal;
+  word-break: break-all;
+  text-align: right;
+}
 </style>
 </head>
 <body>
@@ -1283,6 +1386,18 @@ body.listening .mic-label { color: rgba(251,191,36,0.5); }
 <input type="file" id="pdf-file"   accept=".pdf"/>
 <input type="file" id="image-file" accept="image/*"/>
 
+<!-- ══════════════════════════════════════════════════════
+     LIGHTBOX — full-screen image viewer
+══════════════════════════════════════════════════════════ -->
+<div id="lightbox">
+  <button id="lightbox-close" title="Close (Esc)">✕</button>
+  <button id="lightbox-dl" title="Download image">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+      <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+    </svg>
+  </button>
+  <img id="lightbox-img" alt="Full-size image" />
+</div>
 
 <script>
 // ════════════════════════════════════════════════════════════
@@ -1306,6 +1421,23 @@ let modes           = [];
 const playCtx    = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
 let nextPlayTime  = 0;
 let activeSources = [];
+let _pendingAudio = [];   // buffers queued while AudioContext is suspended (autoplay policy)
+
+// Drain the queue the moment the context becomes running
+playCtx.addEventListener('statechange', () => {
+  if (playCtx.state === 'running' && _pendingAudio.length > 0) {
+    nextPlayTime = 0;                          // reschedule from 'now'
+    _pendingAudio.splice(0).forEach(_scheduleAudio);
+  }
+});
+
+// Unlock AudioContext on any user gesture anywhere on the page
+function _unlockAudio() {
+  if (playCtx.state !== 'running') playCtx.resume().catch(() => {});
+}
+document.addEventListener('click',    _unlockAudio, { once: true });
+document.addEventListener('keydown',  _unlockAudio, { once: true });
+document.addEventListener('touchend', _unlockAudio, { once: true });
 
 // ── Steps completion tracking ────────────────────────────
 const TOOL_LABELS = {
@@ -1378,6 +1510,10 @@ const captureBtn   = document.getElementById('capture-btn');
 const cameraClose  = document.getElementById('camera-close');
 const cameraFlip   = document.getElementById('camera-flip');
 const frameCanvas  = document.getElementById('frame-canvas');
+const lightbox      = document.getElementById('lightbox');
+const lightboxImg   = document.getElementById('lightbox-img');
+const lightboxClose = document.getElementById('lightbox-close');
+const lightboxDl    = document.getElementById('lightbox-dl');
 const imgPreview   = document.getElementById('img-preview');
 const clearBtn     = document.getElementById('clear-btn');
 
@@ -1548,6 +1684,10 @@ function handleMessage(e) {
     // Structured result from calculate_combined_solar — rooftop + outdoor combined card.
     addCombinedCard(msg.data);
   }
+  else if (msg.type === 'installer_data') {
+    // Structured result from find_local_installers — local installer list card.
+    addInstallersCard(msg.data);
+  }
   else if (msg.type === 'error') {
     addMessage('model', `⚠️ ${msg.text}`);
     setStatus('Error', '');
@@ -1558,6 +1698,16 @@ function handleMessage(e) {
 //  Audio playback (model → browser)
 // ════════════════════════════════════════════════════════════
 function playAudio(buffer) {
+  if (playCtx.state !== 'running') {
+    // AudioContext still suspended (browser autoplay policy — no user gesture yet).
+    // Queue the buffer; _unlockAudio / statechange listener will drain it on first interaction.
+    _pendingAudio.push(buffer);
+    return;
+  }
+  _scheduleAudio(buffer);
+}
+
+function _scheduleAudio(buffer) {
   const i16 = new Int16Array(buffer);
   const f32 = new Float32Array(i16.length);
   for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
@@ -1745,6 +1895,26 @@ micBtn.addEventListener('click', () => {
     startRecording();
   }
 });
+
+// ════════════════════════════════════════════════════════════
+//  Lightbox — full-screen image viewer
+// ════════════════════════════════════════════════════════════
+function openLightbox(src) {
+  lightboxImg.src = src;
+  lightbox.classList.add('visible');
+}
+function dlImg(src) {
+  const a = document.createElement('a');
+  a.href = src;
+  a.download = 'prometheus-image.jpg';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+lightboxClose.addEventListener('click', () => lightbox.classList.remove('visible'));
+lightboxDl.addEventListener('click', (e) => { e.stopPropagation(); dlImg(lightboxImg.src); });
+lightbox.addEventListener('click', (e) => { if (e.target === lightbox) lightbox.classList.remove('visible'); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') lightbox.classList.remove('visible'); });
 
 // ════════════════════════════════════════════════════════════
 //  Camera helpers
@@ -2010,8 +2180,13 @@ function addSolarMockup(b64, mimeType, caption) {
   div.className = 'msg model';
   div.innerHTML =
     `<div class="role">Prometheus</div>` +
-    `<img class="mockup-img" src="${src}" alt="Solar panel mockup"` +
-    ` title="Click to open full-size" onclick="window.open(this.src,'_blank')"/>` +
+    `<div class="img-wrap block">` +
+      `<img class="mockup-img" src="${src}" alt="Solar panel mockup"` +
+      ` title="Click to view full-size" onclick="openLightbox(this.src)"/>` +
+      `<button class="img-dl-btn" title="Download" onclick="dlImg(this.parentElement.querySelector('img').src)">` +
+        `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>` +
+      `</button>` +
+    `</div>` +
     (caption ? `<div class="mockup-caption">${escHtml(caption)}</div>` : '');
   transcript.insertBefore(div, typing);
   transcript.scrollTop = transcript.scrollHeight;
@@ -2100,8 +2275,13 @@ function addImageMessage(dataUrl, caption) {
   div.className = 'msg user';
   div.innerHTML =
     `<div class="role">You</div>` +
-    `<img class="chat-img" src="${dataUrl}" alt="Photo"` +
-    ` title="Click to open full-size" onclick="window.open(this.src,'_blank')"/>` +
+    `<div class="img-wrap">` +
+      `<img class="chat-img" src="${dataUrl}" alt="Photo"` +
+      ` title="Click to view full-size" onclick="openLightbox(this.src)"/>` +
+      `<button class="img-dl-btn" title="Download" onclick="dlImg(this.parentElement.querySelector('img').src)">` +
+        `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>` +
+      `</button>` +
+    `</div>` +
     (caption ? `<div class="chat-img-caption">${escHtml(caption)}</div>` : '');
   transcript.insertBefore(div, typing);
   transcript.scrollTop = transcript.scrollHeight;
@@ -2219,6 +2399,44 @@ function addCombinedCard(d) {
   transcript.scrollTop = transcript.scrollHeight;
 }
 
+// ════════════════════════════════════════════════════════════
+//  Installer card — find_local_installers result
+// ════════════════════════════════════════════════════════════
+function addInstallersCard(d) {
+  const location  = d.location || 'your area';
+  const companies = d.companies || [];
+
+  const sections = companies.map((c, i) => {
+    const rating = (c.rating && c.rating !== 'N/A') ? `⭐ ${c.rating}` : '⭐ N/A';
+    return (
+      `<div class="solar-section">` +
+        `<div class="solar-section-label">Installer ${i + 1} of ${companies.length}</div>` +
+        `<div class="installer-name">${escHtml(c.name || '—')}</div>` +
+        `<div class="installer-addr">📍 ${escHtml(c.address || '—')}</div>` +
+        `<div class="solar-row">` +
+          `<span class="solar-row-key">${escHtml(rating)}</span>` +
+          `<span class="solar-row-val installer-email">${escHtml(c.email || '—')}</span>` +
+        `</div>` +
+      `</div>`
+    );
+  }).join('');
+
+  const html =
+    `<div class="solar-card">` +
+      `<div class="solar-card-header">` +
+        `<span class="solar-card-header-icon">🔧</span>` +
+        `<span class="solar-card-header-text">Local Installers · ${escHtml(location)}</span>` +
+      `</div>` +
+      (sections || `<div class="solar-section"><div class="installer-addr">No installers found.</div></div>`) +
+    `</div>`;
+
+  const div = document.createElement('div');
+  div.className = 'msg model';
+  div.innerHTML = `<div class="role">Prometheus</div>` + html;
+  transcript.insertBefore(div, typing);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
 function showTyping() {
   typing.classList.add('visible');
   transcript.scrollTop = transcript.scrollHeight;
@@ -2297,5 +2515,6 @@ function showWelcome() {
   showWelcome();
 })();
 </script>
+
 </body>
 </html>
