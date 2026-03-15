@@ -1,5 +1,8 @@
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_EASTERN = ZoneInfo("America/New_York")
 
 log = logging.getLogger("prometheus.rfp_generator")
 
@@ -43,9 +46,10 @@ def generate_rfp(
     Returns:
         Dict with email content, subject, address, date, company_name
     """
-    today = datetime.now().strftime("%B %d, %Y")
-    roof_area_sqft       = round(roof_area_m2 * 10.764, 1)
-    roof_install_year    = datetime.now().year - roof_age_years
+    _now              = datetime.now(_EASTERN)
+    today             = _now.strftime("%B %d, %Y")
+    roof_area_sqft    = round(roof_area_m2 * 10.764, 1)
+    roof_install_year = _now.year - roof_age_years
     monthly_consumption  = round(monthly_bill_usd / 0.12)
 
     try:

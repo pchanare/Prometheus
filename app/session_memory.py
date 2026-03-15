@@ -20,6 +20,9 @@ import json
 import logging
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_EASTERN = ZoneInfo("America/New_York")
 
 log = logging.getLogger("prometheus.memory")
 
@@ -145,7 +148,7 @@ def update(**kwargs) -> None:
             _mem[key] = val
             changed = True
     if changed:
-        _mem["last_updated"] = datetime.now().isoformat()
+        _mem["last_updated"] = datetime.now(_EASTERN).isoformat()
         _save()
         log.info("session_memory: updated keys=%s", list(kwargs.keys()))
 
@@ -160,6 +163,8 @@ def build_injection() -> str:
 
     lines = ["── SESSION MEMORY (identity facts from your previous conversation) ─────────",
              "Use address and name without asking again.",
+             "IMPORTANT: Do NOT open with a welcome-back greeting. The user has already",
+             "been greeted. Respond directly and naturally to their first message.",
              "IMPORTANT: Always ask the user for their monthly electricity bill — never",
              "assume it from a previous session. Bills change and the bill is the primary",
              "input that sizes the entire solar system.",
