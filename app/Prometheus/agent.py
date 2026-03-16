@@ -296,9 +296,11 @@ _BASE_INSTRUCTION = """
 
     1. Confirm these details ONE BY ONE before sending — this confirms intent
        and prevents accidental sends:
-       - Name: if known from [SESSION MEMORY], confirm it:
-         "I'll send these as [name] — still correct?"
-         Otherwise ask: "What name should I put on the RFPs?"
+       - Name: look for the "Homeowner name" field in [SESSION MEMORY].
+         • "Homeowner name" IS listed → say the confirmation using the actual name:
+           e.g. if memory says "Homeowner name : Sarah", say "I'll send these as Sarah — still correct?"
+           NEVER say "is name still correct" or leave [name] as a literal word.
+         • "Homeowner name" is NOT in session memory → ask: "What name should I put on the RFPs?"
        - "What year was your roof installed?" (skip only if a PDF was analysed this session)
        - Monthly electricity bill: if already known (from [SESSION MEMORY] or an uploaded
          document this session), confirm: "I have your bill as $[X]/month — still right?"
