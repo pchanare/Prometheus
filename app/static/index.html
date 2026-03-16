@@ -600,6 +600,29 @@ body.listening .hint-active { display: inline; }
   0%, 100% { transform: translateY(0);    opacity: 0.38; }
   50%       { transform: translateY(-5px); opacity: 1;   }
 }
+/* Separator between dots and label */
+.typing-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(0,0,0,0.15);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+/* Working label */
+#typing-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  animation: labelPulse 2s ease-in-out infinite;
+}
+@keyframes labelPulse {
+  0%, 100% { opacity: 0.65; }
+  50%       { opacity: 1;    }
+}
 
 /* ── Input bar ──────────────────────────────────────────── */
 .input-bar {
@@ -1446,6 +1469,8 @@ body.listening .hint-active { display: inline; }
       <div class="typing-dot"></div>
       <div class="typing-dot"></div>
       <div class="typing-dot"></div>
+      <span class="typing-sep"></span>
+      <span id="typing-label">Working on it…</span>
     </div>
   </div>
 
@@ -1614,6 +1639,7 @@ const textInput    = document.getElementById('text-input');
 const sendBtn      = document.getElementById('send-btn');
 const transcript   = document.getElementById('transcript');
 const typing       = document.getElementById('typing');
+const typingLabel  = document.getElementById('typing-label');
 const statusEl     = document.getElementById('status');
 const statusDetail = document.getElementById('status-detail');
 const connDot      = document.getElementById('conn-dot');
@@ -1773,8 +1799,10 @@ function handleMessage(e) {
     }
   }
   else if (msg.type === 'status') {
-    // Real-time tool progress — text only, shown in the detail pill below the main status.
+    // Real-time tool progress — text only, shown in the detail pill below the main status
+    // and mirrored into the chat typing bubble so users see it without looking at the orb.
     statusDetail.textContent = msg.text;
+    typingLabel.textContent  = msg.text || 'Working on it…';
     if (msg.text) {
       statusDetail.classList.add('visible');
       // Track step start (server always sends msg.tool even though we no longer play WAV)
@@ -2554,6 +2582,7 @@ function addInstallersCard(d) {
 }
 
 function showTyping() {
+  typingLabel.textContent = 'Working on it…';
   typing.classList.add('visible');
   transcript.scrollTop = transcript.scrollHeight;
   clearTimeout(processingTimer);
@@ -2568,6 +2597,7 @@ function showTyping() {
 
 function hideTyping() {
   typing.classList.remove('visible');
+  typingLabel.textContent = 'Working on it…';
   clearTimeout(processingTimer);
   processingTimer = null;
 }
