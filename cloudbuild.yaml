@@ -40,7 +40,7 @@ steps:
       - >-
         --set-secrets=MAPS_API_KEY=MAPS_API_KEY:latest,GOOGLE_SEARCH_API_KEY=GOOGLE_SEARCH_API_KEY:latest,GOOGLE_SEARCH_ENGINE_ID=GOOGLE_SEARCH_ENGINE_ID:latest,DOCUMENT_AI_PROCESSOR_ID=DOCUMENT_AI_PROCESSOR_ID:latest,GMAIL_TOKEN=GMAIL_TOKEN:latest
       - >-
-        --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1,GOOGLE_GENAI_USE_VERTEXAI=1,SENDER_EMAIL=raizadamisc@gmail.com
+        --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1,GOOGLE_GENAI_USE_VERTEXAI=1,SENDER_EMAIL=raizadamisc@gmail.com,MEMORY_BUCKET=$PROJECT_ID-prometheus-memory
 
 # Tag the final image as the build artifact
 images:
