@@ -3,6 +3,9 @@
 .env.*
 *.pem
 *.key
+secrets.sh
+secrets*.sh
+setup_secrets.sh
 
 # Virtual environment
 .venv/

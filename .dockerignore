@@ -9,3 +9,7 @@ app/session_memory.json
 *.png
 .claude/
 .venv/
+# Secrets / deploy scripts
+secrets.sh
+secrets*.sh
+setup_secrets.sh
