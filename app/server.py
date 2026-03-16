@@ -476,6 +476,16 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
              " (reconnect)" if _is_reconnect else "")
 
     # ── Session memory → system instruction ─────────────────────────────────
+    # Reset memory on every new connection so each session starts fresh.
+    # This is intentional for testing/demo purposes — remove this block
+    # to restore cross-session persistence via GCS.
+    try:
+        from session_memory import reset as _mem_reset
+        _mem_reset()
+        log.info("session_memory: reset on new WebSocket connection")
+    except Exception as _mem_reset_exc:
+        log.warning("session_memory: reset failed: %s", _mem_reset_exc)
+
     # Append stored facts to the agent's system instruction so the model
     # treats them as ground-truth context — no user-turn injection, no
     # response triggered.
