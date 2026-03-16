@@ -1122,32 +1122,36 @@ body.listening .hint-active { display: inline; }
     height: 100dvh;
   }
 
-  /* Left panel = top 1/3 of screen, 2-row layout:
-     Row 1: brand (left) + controls (right)
-     Row 2: orb + status (centred, fills remaining height) */
+  /* Left panel = top 1/3 of screen.
+     CSS Grid gives us a reliable 2-row layout without flex-order tricks:
+       Row 1 (auto): brand (left)  |  controls (right)
+       Row 2 (1fr) : orb + status spanning full width  */
   #left {
     width: 100%;
     min-width: unset;
     height: 33dvh;
     flex-shrink: 0;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-content: flex-start;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "brand controls"
+      "stage stage";
+    align-items: start;
+    justify-items: stretch;
     padding: 0;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    gap: 0;
   }
 
   /* Row 1 left: brand */
   .left-header {
-    order: 1;
-    flex: 1;
+    grid-area: brand;
+    width: auto;
     flex-direction: row;
     align-items: center;
     gap: 8px;
     padding: 10px 14px 0;
-    width: auto;
   }
   .brand-sun     { width: 22px; height: 22px; }
   .brand-name    { font-size: 15px; }
@@ -1156,9 +1160,11 @@ body.listening .hint-active { display: inline; }
 
   /* Row 1 right: controls */
   .controls {
-    order: 2;
-    flex-shrink: 0;
+    grid-area: controls;
+    width: auto;
     padding: 10px 14px 0;
+    align-items: flex-end;
+    gap: 0;
   }
   .mic-hint { font-size: 10px; }
   .ctrl-row { gap: 8px; padding-bottom: 0; }
@@ -1167,15 +1173,14 @@ body.listening .hint-active { display: inline; }
 
   /* Row 2: orb + status, centred, fills remaining height */
   .stage {
-    order: 3;
-    width: 100%;
-    flex: 1;
+    grid-area: stage;
+    width: auto;
+    flex: unset;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 6px;
     padding-bottom: 8px;
-    min-width: 0;
   }
   .orb-shell  { width: 80px; height: 80px; flex-shrink: 0; }
   .orb-blobs  { width: 58px; height: 58px; }
