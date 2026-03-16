@@ -581,40 +581,40 @@ body.listening .hint-active { display: inline; }
   align-items: center;
   gap: 10px;
   padding: 8px 18px 8px 14px;
-  background: #1f2d45;
-  border: 1px solid rgba(251,191,36,0.36);
+  background: #f0eef8;
+  border: 1px solid rgba(212,175,55,0.72);
   border-radius: 24px;
   position: relative;
   overflow: hidden;
   animation: statusIn 0.28s ease;
 }
 #typing.visible { display: flex; }
-/* Same travelling shimmer as the status-detail pill */
+/* Golden shimmer sweep */
 #typing::after {
   content: '';
   position: absolute;
   top: 0; left: -80%;
   width: 50%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(251,191,36,0.08), transparent);
+  background: linear-gradient(90deg, transparent, rgba(212,175,55,0.18), transparent);
   animation: shimmer 2.8s ease-in-out infinite;
 }
-/* Amber arc spinner */
+/* Golden arc spinner */
 .typing-spinner {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid rgba(251,191,36,0.25);
-  border-top-color: #fbbf24;
+  border: 2px solid rgba(212,175,55,0.28);
+  border-top-color: #d4af37;
   flex-shrink: 0;
-  position: relative; /* sits above shimmer */
+  position: relative;
   z-index: 1;
   animation: spin 0.8s linear infinite;
 }
-/* Working label */
+/* Grey label */
 #typing-label {
   font-size: 12px;
   font-weight: 500;
-  color: #e8eeff;
+  color: #6b7280;
   white-space: nowrap;
   overflow: hidden;
   max-width: 260px;
