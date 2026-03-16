@@ -14,3 +14,8 @@ app/session_memory.json
 secrets.sh
 secrets*.sh
 setup_secrets.sh
+
+# Test / dev scripts (not needed in production image)
+app/test_all.py
+app/test_installers.py
+app/auth_test.py
