@@ -580,31 +580,47 @@ body.listening .hint-active { display: inline; }
   align-self: flex-start;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
-  background: #141c2e;
-  border-radius: 8px;
+  padding: 8px 18px 8px 14px;
+  background: #1f2d45;
+  border: 1px solid rgba(251,191,36,0.36);
+  border-radius: 24px;
+  position: relative;
+  overflow: hidden;
+  animation: statusIn 0.28s ease;
 }
 #typing.visible { display: flex; }
-
+/* Same travelling shimmer as the status-detail pill */
+#typing::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -80%;
+  width: 50%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(251,191,36,0.08), transparent);
+  animation: shimmer 2.8s ease-in-out infinite;
+}
 /* Amber arc spinner */
 .typing-spinner {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   border: 2px solid rgba(251,191,36,0.25);
   border-top-color: #fbbf24;
   flex-shrink: 0;
+  position: relative; /* sits above shimmer */
+  z-index: 1;
   animation: spin 0.8s linear infinite;
 }
 /* Working label */
 #typing-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
-  color: #fbbf24;
+  color: #e8eeff;
   white-space: nowrap;
   overflow: hidden;
   max-width: 260px;
   text-overflow: ellipsis;
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Input bar ──────────────────────────────────────────── */
