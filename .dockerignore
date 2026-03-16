@@ -7,6 +7,7 @@ app/token.pickle
 app/session_memory.json
 *.jpg
 *.png
+*.wav
 .claude/
 .venv/
 # Secrets / deploy scripts
