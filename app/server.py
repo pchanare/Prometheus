@@ -521,6 +521,13 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = DEFAULT_MODE):
                     disabled=True  # we send ActivityStart/End explicitly
                 )
             ),
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name="Leda"
+                    )
+                )
+            ),
         )
         # Attach context-window compression if the ADK version supports it
         try:
