@@ -10,7 +10,7 @@ Prometheus is a **Live Agent** built on the Gemini Live API and Google ADK. User
 
 - **Analyses their roof** via the Google Solar API - panels, annual production, payback period, federal + state incentives
 - **Models outdoor alternatives** - solar canopies and ground-mount systems with full financial breakdowns
-- **Generates photorealistic mockups** of panels on the user's actual property using Imagen 3 / Gemini image models
+- **Generates photorealistic mockups** of panels on the user's actual property using Gemini image models / Imagen 3
 - **Accepts camera and photo input** so users can show their outdoor space for spatial analysis
 - **Parses uploaded documents** - electricity bills, HOA rules, roof inspection reports - via Document AI
 - **Finds local installers** via Google Maps and sends personalised RFP emails via Gmail
@@ -23,8 +23,6 @@ All tool activity is narrated with real-time step-by-step status messages. Resul
 
 ![Architecture Diagram](architecture.svg)
 
-See `architecture.svg` for the full system diagram.
-
 **Key components:**
 
 | Layer | Technology |
@@ -32,8 +30,9 @@ See `architecture.svg` for the full system diagram.
 | Frontend | Vanilla JS + WebSocket client (served by FastAPI) |
 | Backend | FastAPI + `google-adk` ADK Runner on **Google Cloud Run** |
 | Voice model | `gemini-live-2.5-flash-native-audio` via **Vertex AI** |
-| Reasoning | `gemini-3.1-flash-lite-preview` (Brain tier, parallel calls) |
-| Image generation | `gemini-3.1-flash-image-preview` → Imagen 3 fallback |
+| Reasoning | `gemini-3.1-flash-lite-preview` (Brain tier) |
+| PDF analysis | `gemini-3.1-pro-preview` |
+| Image generation | `gemini-3.1-flash-image-preview` → `gemini-2.5-flash-image` → Imagen 3 fallback |
 | Solar data | **Google Solar API** |
 | Geocoding / Maps | **Google Maps Platform** |
 | Document parsing | **Google Document AI** |
@@ -46,18 +45,20 @@ See `architecture.svg` for the full system diagram.
 ## Prerequisites
 
 - Python 3.11+
-- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud` CLI)
-- A Google Cloud project with billing enabled
-- The following APIs enabled in your project:
+- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud` CLI) — authenticated and configured
+- A Google Cloud project with **billing enabled**
+- The following APIs enabled (Terraform enables these automatically — see Cloud Deployment):
   - Vertex AI API
   - Google Solar API
-  - Maps JavaScript API + Geocoding API
+  - Maps JavaScript API + Street View Static API
   - Google Custom Search API
-  - Document AI API (optional - for PDF parsing)
-  - Gmail API (for RFP emails)
+  - Document AI API
+  - Gmail API
   - Secret Manager API
-  - Cloud Run API + Artifact Registry API
-  - Cloud Storage API (for persistent session memory)
+  - Cloud Run API
+  - Artifact Registry API
+  - Cloud Storage API
+  - Cloud Build API
 
 ---
 
@@ -66,7 +67,7 @@ See `architecture.svg` for the full system diagram.
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/pchanare/Prometheus.git
 cd prometheus-agent
 ```
 
@@ -85,6 +86,7 @@ source .venv/bin/activate
 ### 3. Install dependencies
 
 ```bash
+# requirements.txt is in the project root
 pip install -r requirements.txt
 ```
 
@@ -101,6 +103,7 @@ MAPS_API_KEY=your-google-maps-api-key
 GOOGLE_SEARCH_API_KEY=your-custom-search-api-key
 GOOGLE_SEARCH_ENGINE_ID=your-search-engine-id
 DOCUMENT_AI_PROCESSOR_ID=your-document-ai-processor-id
+DOCUMENT_AI_LOCATION=us
 SENDER_EMAIL=your-gmail-address@gmail.com
 ```
 
@@ -111,16 +114,28 @@ gcloud auth application-default login
 gcloud config set project your-gcp-project-id
 ```
 
-### 6. Set up Gmail OAuth (for RFP email sending)
+### 6. Create a Document AI OCR Processor (one-time)
+
+1. Go to [console.cloud.google.com/ai/document-ai](https://console.cloud.google.com/ai/document-ai)
+2. Click **Create Processor** → select **Document OCR**
+3. Give it a name (e.g. `prometheus-ocr`) → select region `us`
+4. Copy the **Processor ID** (looks like `abc1234def567890`) → paste into your `.env` as `DOCUMENT_AI_PROCESSOR_ID`
+
+### 7. Set up Gmail OAuth credentials (for RFP email sending)
+
+1. Go to [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials)
+2. Click **Create Credentials** → **OAuth 2.0 Client ID** → Application type: **Desktop app**
+3. Download the JSON → save it as `app/credentials.json`
+4. Run the auth flow:
 
 ```bash
 cd app
 python auth_test.py
 ```
 
-This opens a browser window - log in with your Gmail account and grant access. It writes `token.pickle` to the `app/` directory.
+This opens a browser — log in with your Gmail account and grant access. It writes `app/token.pickle` which the agent uses at runtime.
 
-### 7. Run the server
+### 8. Run the server
 
 ```bash
 cd app
@@ -133,62 +148,118 @@ Open your browser at **http://localhost:8080**
 
 ## Cloud Deployment
 
-Deployment is fully automated via a CI/CD pipeline - every `git push origin main` builds and deploys automatically. The steps below are **one-time setup only**.
+Deployment is fully automated via CI/CD — every `git push origin main` builds and deploys automatically. The steps below are **one-time setup only**.
 
-### Step 1 - Provision infrastructure (Terraform)
+### Step 1 — Update project references
 
-Run once in Google Cloud Shell (Terraform is pre-installed):
+Before running anything, replace the hardcoded project ID in two files:
+
+**`terraform/variables.tf`** — update the defaults:
+```hcl
+variable "project_id" {
+  default = "YOUR-PROJECT-ID"   # ← change this
+}
+variable "image" {
+  default = "us-central1-docker.pkg.dev/YOUR-PROJECT-ID/prometheus/agent:latest"  # ← change this
+}
+variable "sender_email" {
+  default = "your-email@gmail.com"   # ← change this
+}
+```
+
+**`deploy.sh`** — update the top line (only needed if using manual deploy):
+```bash
+PROJECT=YOUR-PROJECT-ID    # ← change this
+```
+
+### Step 2 — Provision infrastructure with Terraform
+
+Run once from [Google Cloud Shell](https://shell.cloud.google.com) (Terraform is pre-installed) or locally:
 
 ```bash
 cd terraform
 terraform init
-terraform plan
-terraform apply   # type 'yes' when prompted
+terraform plan   # review what will be created
+terraform apply  # type 'yes' when prompted
 ```
 
-This creates the Cloud Run service, Service Account, IAM roles, and Artifact Registry repository.
+This creates:
+- Cloud Run service, Service Account, and all IAM role bindings
+- Artifact Registry Docker repository
+- GCS bucket for persistent session memory (`YOUR-PROJECT-ID-prometheus-memory`)
+- All required API enablement
 
-### Step 2 - Store secrets in Secret Manager
+### Step 3 — Store secrets in Secret Manager
+
+Run these commands in Cloud Shell or your terminal (replace placeholders with your real values):
 
 ```bash
-# Fix Windows line endings if running locally
-sed -i 's/\r//' setup_secrets.sh
+PROJECT_ID=YOUR-PROJECT-ID
 
-bash setup_secrets.sh
+# Google Maps API Key
+echo -n "YOUR_MAPS_API_KEY" | \
+  gcloud secrets create MAPS_API_KEY --data-file=- --project=$PROJECT_ID
+
+# Google Custom Search API Key
+echo -n "YOUR_SEARCH_API_KEY" | \
+  gcloud secrets create GOOGLE_SEARCH_API_KEY --data-file=- --project=$PROJECT_ID
+
+# Google Custom Search Engine ID
+echo -n "YOUR_SEARCH_ENGINE_ID" | \
+  gcloud secrets create GOOGLE_SEARCH_ENGINE_ID --data-file=- --project=$PROJECT_ID
+
+# Document AI Processor ID
+echo -n "YOUR_PROCESSOR_ID" | \
+  gcloud secrets create DOCUMENT_AI_PROCESSOR_ID --data-file=- --project=$PROJECT_ID
 ```
 
-This stores `MAPS_API_KEY`, `GOOGLE_SEARCH_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`, `DOCUMENT_AI_PROCESSOR_ID` in Secret Manager.
-
-Then upload the Gmail OAuth token:
+Then upload the Gmail OAuth token (generated by `auth_test.py` in local setup Step 7 above):
 
 ```bash
-base64 app/token.pickle > token_b64.txt
-gcloud secrets create GMAIL_TOKEN --data-file=token_b64.txt
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:prometheus-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
+# Convert token.pickle to base64 and store in Secret Manager
+base64 app/token.pickle > /tmp/token_b64.txt
+gcloud secrets create GMAIL_TOKEN \
+  --data-file=/tmp/token_b64.txt \
+  --project=$PROJECT_ID
+rm /tmp/token_b64.txt
 ```
 
-### Step 3 - Connect GitHub → Cloud Build (one-time, 5 minutes)
+### Step 4 — Connect GitHub to Cloud Build (one-time, ~5 minutes)
 
 1. Go to [console.cloud.google.com/cloud-build/triggers](https://console.cloud.google.com/cloud-build/triggers)
 2. Click **Connect Repository** → select **GitHub**
-3. Authenticate → select your repo → click **Install Google Cloud Build**
+3. Authenticate → select your fork → click **Install Google Cloud Build**
 4. Click **Create Trigger** with these settings:
    - Event: **Push to a branch**
    - Branch: `^main$`
    - Configuration: **Cloud Build configuration file** → `cloudbuild.yaml`
 5. Click **Save**
 
-### Step 4 - Deploy
+### Step 5 — Deploy
 
 ```bash
 git push origin main
 ```
 
-That's it. Every push to `main` automatically builds a fresh Docker image and deploys a new Cloud Run revision - zero manual steps required.
+Cloud Build picks it up automatically, builds the Docker image, and rolls out a new Cloud Run revision. The live URL is printed at the end of the build log, or run:
 
-> **Manual deploy (optional fallback):** If you need to deploy without a git push, run `bash deploy.sh` from Google Cloud Shell.
+```bash
+gcloud run services describe prometheus-agent --region=us-central1 --format='value(status.url)'
+```
+
+> **Manual deploy (alternative):** If you need to deploy without a git push, run `bash deploy.sh` from the project root. Make sure you've updated `PROJECT` at the top of the file first.
+
+---
+
+## Getting Your API Keys
+
+| Key | Where to get it |
+|---|---|
+| `MAPS_API_KEY` | [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials) → Create API Key → restrict to Maps + Street View Static APIs |
+| `GOOGLE_SEARCH_API_KEY` | [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials) → Create API Key → restrict to Custom Search API |
+| `GOOGLE_SEARCH_ENGINE_ID` | [Programmable Search Engine](https://programmablesearchengine.google.com/) → Create search engine → search the whole web → copy the Engine ID |
+| `DOCUMENT_AI_PROCESSOR_ID` | [Document AI Console](https://console.cloud.google.com/ai/document-ai) → Create Processor → Document OCR → region `us` → copy Processor ID |
+| Gmail `credentials.json` | [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials) → OAuth 2.0 Client ID → Desktop App → Download JSON → save as `app/credentials.json` |
 
 ---
 
@@ -197,30 +268,38 @@ That's it. Every push to `main` automatically builds a fresh Docker image and de
 ```
 prometheus-agent/
 ├── app/
-│   ├── server.py               # FastAPI app, WebSocket handler, ADK runner
+│   ├── server.py                  # FastAPI app, WebSocket handler, ADK runner
 │   ├── Prometheus/
-│   │   └── agent.py            # ADK Agent definition + system prompt
-│   ├── brain.py                # Parallel Gemini reasoning + image generation
-│   ├── solar_api.py            # Google Solar API + Maps geocoding
-│   ├── solar_mockup.py         # Photorealistic panel mockup generation
-│   ├── outdoor_solar_tool.py   # Canopy / ground-mount financial calculations
-│   ├── combined_solar_tool.py  # Combined rooftop + outdoor analysis
-│   ├── find_installers.py      # Google Maps local installer search
-│   ├── rfp_generator.py        # Personalised RFP email generation
-│   ├── send_rfp_email.py       # Gmail API sender (OAuth via Secret Manager)
-│   ├── image_analysis.py       # Gemini vision - outdoor space analysis
-│   ├── tax_benefits.py         # Federal ITC + live state incentive lookup (Custom Search + Brain fallback)
-│   ├── search_tool.py          # Google Custom Search web tool
-│   ├── session_memory.py       # Persistent session memory - GCS-backed on Cloud Run, local file in dev
-│   ├── status_channel.py       # Real-time status push to browser
+│   │   └── agent.py               # ADK Agent definition + system prompt
+│   ├── brain.py                   # Tiered model dispatch + image generation
+│   ├── solar_api.py               # Google Solar API + Maps geocoding
+│   ├── solar_mockup.py            # Photorealistic panel mockup (image side-channel)
+│   ├── solar_analysis_tool.py     # Composite: Solar API + tax + incentive search
+│   ├── outdoor_solar_tool.py      # Canopy / ground-mount financial calculations
+│   ├── combined_solar_tool.py     # Combined rooftop + outdoor analysis
+│   ├── find_installers.py         # Google Maps local installer search
+│   ├── rfp_generator.py           # Personalised RFP email generation
+│   ├── send_rfp_email.py          # Gmail API sender (OAuth via Secret Manager)
+│   ├── send_all_rfps_tool.py      # Composite: generate + send all 3 RFPs in one call
+│   ├── image_analysis.py          # Gemini Vision — outdoor space analysis
+│   ├── tax_benefits.py            # Federal ITC + state incentive lookup
+│   ├── search_tool.py             # Google Custom Search web tool
+│   ├── search_installation_cost.py # Live pricing search
+│   ├── session_memory.py          # GCS-backed persistent memory (local JSON in dev)
+│   ├── status_channel.py          # Real-time status push to browser
+│   ├── auth_test.py               # One-time Gmail OAuth flow
 │   └── static/
-│       └── index.html          # Single-page frontend (voice UI + chat)
+│       └── index.html             # Single-page frontend (voice UI + chat)
+├── terraform/
+│   ├── main.tf                    # All GCP resources
+│   ├── variables.tf               # Project ID, region, image path ← update before deploy
+│   └── outputs.tf                 # Cloud Run URL after apply
 ├── Dockerfile
 ├── .dockerignore
-├── requirements.txt
-├── deploy.sh                   # Automated Cloud Run deployment
-├── setup_secrets.sh            # Secret Manager one-time setup
-├── architecture.svg            # System architecture diagram
+├── requirements.txt               # Python dependencies (install from project root)
+├── cloudbuild.yaml                # CI/CD: build → push → deploy on every git push
+├── deploy.sh                      # Manual deploy script (alternative to Cloud Build)
+├── architecture.svg               # System architecture diagram
 └── README.md
 ```
 
@@ -228,41 +307,24 @@ prometheus-agent/
 
 ## Technologies Used
 
-- **[Google ADK](https://google.github.io/adk-docs/)** - Agent orchestration, tool callbacks, session management
-- **[Gemini Live API](https://ai.google.dev/gemini-api/docs/live)** - Real-time bidirectional audio (`gemini-live-2.5-flash-native-audio`)
-- **Gemini image models** - `gemini-3.1-flash-image-preview` for solar mockup generation
-- **Imagen 3** - `imagen-3.0-generate-001` fallback for photorealistic mockups
-- **Google Solar API** - Rooftop solar potential, panel counts, energy production estimates
-- **Google Maps Platform** - Geocoding, Street View imagery, Places for local installers
-- **Google Document AI** - OCR and structured extraction from uploaded PDFs
-- **Google Custom Search API** - Live web search for pricing and incentives
-- **Gmail API** - OAuth-authenticated RFP email delivery
-- **Google Cloud Run** - Serverless container hosting
-- **Google Secret Manager** - Runtime secret injection (API keys, OAuth tokens)
-- **Google Artifact Registry** - Docker image storage
-- **FastAPI + WebSocket** - Backend server and real-time browser communication
+- **[Google ADK](https://google.github.io/adk-docs/)** — Agent orchestration, tool callbacks, session management
+- **[Gemini Live API](https://ai.google.dev/gemini-api/docs/live)** — Real-time bidirectional audio (`gemini-live-2.5-flash-native-audio`)
+- **Gemini 3.1 Flash Image Preview** — Primary solar mockup image generation/editing
+- **Imagen 3** — `imagen-3.0-generate-001` final fallback for photorealistic mockups
+- **Google Solar API** — Rooftop solar potential, panel counts, LiDAR-derived irradiance data
+- **Google Maps Platform** — Geocoding, Street View imagery, Places for local installers
+- **Google Document AI** — OCR and structured extraction from uploaded PDFs
+- **Google Custom Search API** — Live web search for pricing and incentives
+- **Gmail API** — OAuth-authenticated RFP email delivery
+- **Google Cloud Run** — Serverless container hosting with 1-hour session timeout
+- **Google Secret Manager** — Runtime secret injection (API keys, OAuth tokens)
+- **Google Artifact Registry** — Docker image storage
+- **Terraform** — Full infrastructure as code
+- **FastAPI + WebSocket** — Backend server and real-time browser communication
 
 ---
 
-## Key Features
-
-- 🎙️ **Real-time voice** - Interruptible conversation via Gemini Live native audio
-- 📷 **Camera + image input** - Point at your outdoor space for AI spatial analysis
-- ☀️ **Live solar data** - Real rooftop data from Google Solar API for your exact address
-- 🏗️ **AI-generated mockups** - See what panels look like on your actual property
-- 📄 **Document upload** - Drop in your electricity bill; the agent reads it automatically
-- 📧 **Automated RFP emails** - Agent drafts and sends personalised quote requests to installers
-- 💰 **Full financial breakdown** - Cost, savings, payback, ITC, and live state incentives (Custom Search + Brain fallback) in one card
-- 🔄 **Session memory** - Remembers your address, roof data, and name across reconnects via GCS (survives container restarts)
-- 🧹 **Auto-pruning session cache** - Background task evicts ADK sessions idle for 30+ minutes to prevent memory growth on Cloud Run
-
----
-
-## Infrastructure as Code (CI/CD Pipeline)
-
-The entire cloud infrastructure is defined in code - no manual console clicks required after the first-time secret setup.
-
-### How it works
+## CI/CD Pipeline
 
 ```
 git push origin main
@@ -273,55 +335,14 @@ git push origin main
                     ┌───────────┼───────────┐
                     ▼           ▼           ▼
                docker build   docker push  gcloud run deploy
-               (image)        (Artifact    (Cloud Run -
+               (image)        (Artifact    (Cloud Run —
                                Registry)    new revision)
 ```
 
-Every `git push` to `main` automatically builds a fresh Docker image tagged with the commit SHA and deploys it to Cloud Run - zero manual steps.
-
-### Files
-
-| File | Purpose |
-|---|---|
-| `terraform/main.tf` | Defines Cloud Run service, Service Account, IAM roles, Artifact Registry, GCS memory bucket, and API enablement |
-| `terraform/variables.tf` | Project ID, region, service name, image path |
-| `terraform/outputs.tf` | Outputs the live Cloud Run URL after apply |
-| `cloudbuild.yaml` | 3-step CI/CD pipeline: build → push → deploy, triggered on every push to `main` |
-
-### First-time Terraform setup
-
-```bash
-# Install Terraform (if not already installed)
-# Windows:  winget install HashiCorp.Terraform  (or use Google Cloud Shell - pre-installed)
-# macOS:    brew install terraform
-# Linux:    https://developer.hashicorp.com/terraform/install
-
-cd terraform
-terraform init
-terraform plan   # review what will be created
-terraform apply  # provision everything
-```
-
-Terraform manages:
-- Cloud Run service configuration (secrets, env vars, scaling, timeout)
-- Service Account and all IAM role bindings
-- Artifact Registry repository
-- Required API enablement
-- Public (`allUsers`) invoker policy
-- GCS bucket for session memory persistence across container restarts
-
-### Ongoing deploys
-
-After the one-time setup above, deploying is simply:
-
-```bash
-git push origin main
-```
-
-Cloud Build picks it up automatically, builds the image, and rolls out a new Cloud Run revision.
+Every push to `main` automatically builds a fresh Docker image tagged with the commit SHA and deploys it to Cloud Run — zero manual steps after the one-time setup.
 
 ---
 
-## Hackathon
+## Built For
 
-Built for the **Gemini Live Agent Challenge** - Category: **Live Agents 🗣️**
+**Gemini Live Agent Challenge** — Category: **Live Agents 🗣️**
